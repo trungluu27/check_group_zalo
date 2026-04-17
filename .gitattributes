@@ -1,0 +1,25 @@
+# Normalize line endings across platforms
+* text=auto
+
+# Shell scripts and config should stay LF for macOS/Linux
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+
+# Windows scripts should stay CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Common binaries
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.icns binary
+*.xlsx binary
+*.xls binary
+*.zip binary
+*.exe binary
+*.dmg binary

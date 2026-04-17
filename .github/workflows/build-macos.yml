@@ -1,0 +1,117 @@
+name: Build macOS App
+
+on:
+  push:
+    tags:
+      - 'v*'           # Trigger on version tags: v1.0.0, v1.2.3, etc.
+  workflow_dispatch:   # Allow manual trigger from GitHub Actions UI
+
+jobs:
+  build-macos:
+    name: Build macOS .app (universal2)
+    runs-on: macos-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout source code
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # 2. Setup Python
+      # -----------------------------------------------------------------------
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # -----------------------------------------------------------------------
+      # 3. Cache pip packages
+      # -----------------------------------------------------------------------
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # -----------------------------------------------------------------------
+      # 4. Install Python dependencies
+      # -----------------------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # -----------------------------------------------------------------------
+      # 5. Download ChromeDriver matching the runner's Chrome version
+      # -----------------------------------------------------------------------
+      - name: Download ChromeDriver for bundling
+        run: python resources/download_chromedriver.py
+
+      # -----------------------------------------------------------------------
+      # 6. Build macOS .app bundle
+      # -----------------------------------------------------------------------
+      - name: Build macOS .app
+        run: pyinstaller ZaloGroupChecker.spec --noconfirm
+
+      # -----------------------------------------------------------------------
+      # 7. Verify build output
+      # -----------------------------------------------------------------------
+      - name: Verify build
+        run: |
+          if [ -d "dist/ZaloGroupChecker.app" ]; then
+            echo "✅ ZaloGroupChecker.app created successfully"
+            du -sh dist/ZaloGroupChecker.app
+          else
+            echo "❌ Build failed — ZaloGroupChecker.app not found"
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------------
+      # 8. Create ZIP archive
+      # -----------------------------------------------------------------------
+      - name: Create ZIP archive
+        run: |
+          cd dist
+          zip -r ZaloGroupChecker-macOS.zip ZaloGroupChecker.app
+          ls -lh ZaloGroupChecker-macOS.zip
+
+      # -----------------------------------------------------------------------
+      # 9. Upload artifact (available for 14 days in GitHub Actions UI)
+      # -----------------------------------------------------------------------
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZaloGroupChecker-macOS
+          path: dist/ZaloGroupChecker-macOS.zip
+          retention-days: 14
+
+      # -----------------------------------------------------------------------
+      # 10. Create GitHub Release (only on version tags)
+      # -----------------------------------------------------------------------
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ZaloGroupChecker-macOS.zip
+          name: "Zalo Group Checker ${{ github.ref_name }}"
+          body: |
+            ## Zalo Group Checker ${{ github.ref_name }}
+
+            ### macOS Installation
+            1. Download `ZaloGroupChecker-macOS.zip`
+            2. Unzip and drag `ZaloGroupChecker.app` to your Applications folder
+            3. First launch: **Right-click → Open** (to bypass Gatekeeper)
+            4. Make sure **Google Chrome** is installed on your Mac
+               → Download: https://www.google.com/chrome/
+
+            ### Requirements
+            - macOS 11.0 (Big Sur) or later
+            - Intel or Apple Silicon M1/M2/M3 (universal2 binary)
+            - Google Chrome browser installed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

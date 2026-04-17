@@ -1,0 +1,30 @@
+{
+  "browser": {
+    "headless": false,
+    "timeout": 30000,
+    "viewport": {
+      "width": 1280,
+      "height": 800
+    }
+  },
+  "scraper": {
+    "scroll_pause": 2,
+    "max_scroll_attempts": 100,
+    "wait_for_element": 10
+  },
+  "excel": {
+    "default_column": "username",
+    "output_format": "xlsx",
+    "output_directory": "output"
+  },
+  "comparison": {
+    "default_method": "fuzzy",
+    "default_threshold": 0.85,
+    "case_sensitive": false
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/app.log",
+    "console": true
+  }
+}

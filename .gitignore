@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# PyQt
+*.ui~
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Logs
+logs/
+*.log
+
+# ChromeDriver binary (downloaded at build time — do not commit)
+resources/chromedriver/
+
+# Output
+output/*.xlsx
+output/*.csv
+!output/.gitkeep
+
+# Playwright
+.playwright/
+
+# Test files
+test_*.xlsx
+test_*.xls
+sample_*.xlsx
+sample_*.xls
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Browser data
+browser_data/
+*.crx
+
+# Configuration (if contains sensitive data)
+config.local.json
+.env
+.env.local
+
+# Package files
+*.pyc
+*.pyo
+*.pyd

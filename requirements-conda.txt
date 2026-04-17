@@ -1,0 +1,12 @@
+# Conda-friendly requirements file
+# Use this if you're using conda instead of pip
+
+# Install these via conda:
+# conda install pandas openpyxl
+
+# Install these via pip (after conda packages):
+playwright==1.40.0
+PyQt6==6.6.1
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.23.0
+xlrd==2.0.1

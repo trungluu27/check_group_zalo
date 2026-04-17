@@ -1,0 +1,236 @@
+HƯỚNG DẪN CÀI ĐẶT VÀ SỬ DỤNG
+ZALO GROUP MEMBERSHIP CHECKER
+==============================
+
+Phần mềm kiểm tra thành viên trong nhóm Zalo
+Phiên bản: 1.0.0
+Hệ điều hành: macOS 11.0 trở lên
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BƯỚC 1: CÀI ĐẶT ỨNG DỤNG
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Nếu bạn nhận được file .dmg:
+----------------------------
+1. Double-click file ZaloGroupChecker-1.0.0.dmg
+2. Kéo icon ZaloGroupChecker.app vào thư mục Applications
+3. Đóng cửa sổ DMG
+4. Eject DMG từ Finder
+
+Nếu bạn nhận được file .app trực tiếp:
+-------------------------------------
+1. Copy ZaloGroupChecker.app vào thư mục Applications
+   (Hoặc để ở bất kỳ đâu bạn muốn)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BƯỚC 2: CÀI ĐẶT PLAYWRIGHT BROWSER (CHỈ LẦN ĐẦU TIÊN)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ứng dụng cần Playwright để điều khiển trình duyệt.
+
+A. Kiểm tra xem đã có Python chưa:
+-----------------------------------
+1. Mở Terminal (Applications > Utilities > Terminal)
+2. Gõ: python3 --version
+3. Nếu thấy "Python 3.x.x" => Có rồi, chuyển sang bước B
+   Nếu báo lỗi => Cần cài Python trước
+
+Cài Python (nếu chưa có):
+-------------------------
+1. Truy cập: https://www.python.org/downloads/
+2. Tải Python 3.9 hoặc mới hơn cho macOS
+3. Cài đặt theo hướng dẫn
+4. Mở Terminal mới và thử lại: python3 --version
+
+B. Cài đặt Playwright:
+----------------------
+Trong Terminal, chạy lần lượt các lệnh sau:
+
+1. pip3 install playwright
+   (Đợi 1-2 phút)
+
+2. playwright install chromium
+   (Đợi 2-3 phút, sẽ tải browser ~300MB)
+
+Nếu gặp lỗi "permission denied", thử:
+  sudo pip3 install playwright
+  (Nhập mật khẩu máy khi được hỏi)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BƯỚC 3: CHẠY ỨNG DỤNG LẦN ĐẦU
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Mở Applications folder (Finder > Applications)
+2. Tìm ZaloGroupChecker
+3. Double-click để mở
+
+Nếu macOS cảnh báo "from unidentified developer":
+-------------------------------------------------
+Cách 1:
+  1. Click "Cancel"
+  2. Vào System Preferences > Security & Privacy
+  3. Tab "General"
+  4. Sẽ thấy thông báo về ZaloGroupChecker
+  5. Click "Open Anyway"
+  6. Confirm lại
+
+Cách 2:
+  1. Right-click (hoặc Control-click) vào ZaloGroupChecker.app
+  2. Chọn "Open"
+  3. Click "Open" trong dialog
+
+Cách 3 (Terminal):
+  1. Mở Terminal
+  2. Gõ: xattr -cr /Applications/ZaloGroupChecker.app
+  3. Thử mở lại ứng dụng
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+HƯỚNG DẪN SỬ DỤNG
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Chuẩn bị:
+---------
+✓ File Excel (.xlsx hoặc .xls) chứa danh sách username
+  - Cần có cột "username", "name", "user", hoặc "ten"
+  - Ví dụ: Xem file sample_usernames.xlsx đi kèm
+
+✓ Link nhóm Zalo cần kiểm tra
+  - Format: https://chat.zalo.me/g/...
+  - Copy từ Zalo Web hoặc app
+
+Các bước thực hiện:
+------------------
+1. Mở ứng dụng ZaloGroupChecker
+
+2. Click "📁 Select Excel File"
+   → Chọn file Excel của bạn
+
+3. Nhập link nhóm Zalo vào ô "Zalo Group Link"
+
+4. Tùy chọn (nếu muốn):
+   ☑ Use Fuzzy Matching: Tìm kiếm linh hoạt (khuyên dùng)
+   Matching Threshold: Độ chính xác 85% (mặc định)
+
+5. Click "▶️ Start Checking"
+
+6. Trình duyệt sẽ mở ra:
+   → ĐĂNG NHẬP vào Zalo Web
+   → Đợi vài giây để app nhận diện
+   
+7. Đợi quá trình quét thành viên:
+   - Nhóm nhỏ (<50 người): 2-5 phút
+   - Nhóm vừa (50-200 người): 5-15 phút
+   - Nhóm lớn (>200 người): 15-30 phút
+
+8. Xem kết quả:
+   - Hiển thị trong ứng dụng
+   - File Excel lưu tại:
+     ~/Documents/check_group_zalo/output/missing_members.xlsx
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+KẾT QUẢ OUTPUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File missing_members.xlsx gồm 2 sheets:
+
+Sheet 1: Missing Members
+------------------------
+- Danh sách username KHÔNG có trong nhóm
+- Cột 1: Missing Usernames
+- Cột 2: Status (Not in group)
+
+Sheet 2: Metadata
+-----------------
+- Thông tin chi tiết:
+  - Link nhóm
+  - File Excel gốc
+  - Tổng số username trong Excel
+  - Số lượng tìm thấy trong group
+  - Số lượng KHÔNG có trong group
+  - Thời gian tạo báo cáo
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GIẢI QUYẾT SỰ CỐ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Lỗi: "No members found in group"
+--------------------------------
+✓ Kiểm tra link nhóm có đúng không
+✓ Đảm bảo bạn là thành viên của nhóm
+✓ Thử lại với nhóm khác để kiểm tra
+
+Lỗi: "Login timeout"
+--------------------
+✓ Đăng nhập nhanh hơn (trong vòng 5 phút)
+✓ Kiểm tra kết nối Internet
+✓ Tắt VPN nếu đang bật
+
+Lỗi: "Column not found in Excel"
+--------------------------------
+✓ Đổi tên cột trong Excel thành "username" hoặc "name"
+✓ Đảm bảo cột có dữ liệu (không trống)
+
+Lỗi: "Browser not found"
+------------------------
+✓ Chạy lại: playwright install chromium
+✓ Đảm bảo có kết nối Internet khi cài
+
+Ứng dụng chạy chậm:
+------------------
+✓ Bình thường với nhóm lớn
+✓ Đóng các app khác để giải phóng RAM
+✓ Đảm bảo có ít nhất 2GB RAM trống
+
+Ứng dụng không mở được:
+----------------------
+✓ Kiểm tra đã cài Playwright chưa
+✓ Chạy từ Terminal để xem lỗi:
+  /Applications/ZaloGroupChecker.app/Contents/MacOS/ZaloGroupChecker
+✓ Xóa và cài lại nếu cần
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GHI CHÚ QUAN TRỌNG
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️  Bảo mật:
+   - Phải đăng nhập lại Zalo Web mỗi lần chạy
+   - Không lưu trữ mật khẩu
+   - Xử lý dữ liệu hoàn toàn offline
+
+⚠️  Thời gian:
+   - Nhóm lớn cần nhiều thời gian
+   - Không tắt app khi đang chạy
+   - Giữ máy thức (không sleep)
+
+⚠️  Chính xác:
+   - Fuzzy Matching giúp tìm các tên tương tự
+   - Độ chính xác phụ thuộc vào threshold
+   - Kiểm tra kỹ kết quả trước khi sử dụng
+
+⚠️  Sử dụng hợp lý:
+   - Chỉ dùng cho mục đích quản lý nhóm hợp pháp
+   - Tuân thủ điều khoản sử dụng của Zalo
+   - Tôn trọng quyền riêng tư của người dùng
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+HỖ TRỢ VÀ LIÊN HỆ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Để biết thêm thông tin chi tiết:
+- Xem file README.md (tiếng Anh)
+- Kiểm tra logs tại: ~/Documents/check_group_zalo/logs/app.log
+
+Phiên bản: 1.0.0
+Cập nhật: 12/02/2026
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Chúc bạn sử dụng hiệu quả! 🎉
