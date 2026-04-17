@@ -92,6 +92,8 @@ a = Analysis(
         'IPython',
         'jupyter',
         'playwright',
+        'PyQt6.QtPositioning',
+        'PyQt6.QtLocation',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
