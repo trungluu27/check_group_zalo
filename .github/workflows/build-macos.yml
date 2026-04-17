@@ -66,6 +66,15 @@ jobs:
         run: pyinstaller ZaloGroupChecker.spec --noconfirm
 
       # -----------------------------------------------------------------------
+      # Ad-hoc codesign the app        <-- THÊM VÀO ĐÂY
+      # -----------------------------------------------------------------------
+      - name: Ad-hoc codesign the app
+        run: |
+          codesign --force --deep --sign - \
+            --entitlements resources/entitlements.plist \
+            dist/ZaloGroupChecker.app
+
+      # -----------------------------------------------------------------------
       # 7. Verify build output
       # -----------------------------------------------------------------------
       - name: Verify build
