@@ -161,4 +161,5 @@ app = BUNDLE(
             }
         ],
     },
+    entitlements_file='resources/entitlements.plist',
 )
