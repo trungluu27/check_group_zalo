@@ -45,6 +45,28 @@ echo ""
 
 pyinstaller ZaloGroupChecker.spec --noconfirm
 
+# Remove problematic Qt location/positioning permission plugins that can
+# crash startup on some macOS ARM systems (before signing/distribution).
+APP="dist/ZaloGroupChecker.app"
+PLUGIN_DIRS=(
+  "$APP/Contents/Frameworks/PyQt6/Qt6/plugins"
+  "$APP/Contents/MacOS/PyQt6/Qt6/plugins"
+  "$APP/Contents/Resources/PyQt6/Qt6/plugins"
+)
+
+echo "[INFO] Removing problematic Qt permission/location plugins (if present)..."
+for DIR in "${PLUGIN_DIRS[@]}"; do
+  if [ -d "$DIR" ]; then
+    echo "[INFO] Scanning $DIR"
+
+    if [ -d "$DIR/permissions" ]; then
+      find "$DIR/permissions" -type f \( -iname "*location*" -o -iname "*position*" \) -print -delete || true
+    fi
+
+    rm -rf "$DIR/geoservices" "$DIR/position" "$DIR/positioning" "$DIR/location" || true
+  fi
+done
+
 if [ -d "dist/ZaloGroupChecker.app" ]; then
     echo ""
     echo "============================================"

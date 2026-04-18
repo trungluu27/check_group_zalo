@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-macos:
-    name: Build macOS .app (universal2)
+    name: Build macOS .app (arm64)
     runs-on: macos-latest
 
     steps:
@@ -66,7 +66,36 @@ jobs:
         run: pyinstaller ZaloGroupChecker.spec --noconfirm
 
       # -----------------------------------------------------------------------
-      # Ad-hoc codesign the app        <-- THÊM VÀO ĐÂY
+      # 7. Remove problematic Qt location/positioning permission plugins
+      # (prevents startup crash on some macOS 15 ARM systems)
+      # -----------------------------------------------------------------------
+      - name: Remove problematic Qt permission/location plugins
+        run: |
+          APP="dist/ZaloGroupChecker.app"
+
+          # PyQt6 Qt plugin locations in PyInstaller bundles (vary by version/layout)
+          PLUGIN_DIRS=(
+            "$APP/Contents/Frameworks/PyQt6/Qt6/plugins"
+            "$APP/Contents/MacOS/PyQt6/Qt6/plugins"
+            "$APP/Contents/Resources/PyQt6/Qt6/plugins"
+          )
+
+          for DIR in "${PLUGIN_DIRS[@]}"; do
+            if [ -d "$DIR" ]; then
+              echo "[INFO] Scanning $DIR"
+
+              # Remove permissions plugins related to location services
+              if [ -d "$DIR/permissions" ]; then
+                find "$DIR/permissions" -type f \( -iname "*location*" -o -iname "*position*" \) -print -delete || true
+              fi
+
+              # Remove Qt location/positioning plugin trees if present
+              rm -rf "$DIR/geoservices" "$DIR/position" "$DIR/positioning" "$DIR/location" || true
+            fi
+          done
+
+      # -----------------------------------------------------------------------
+      # 8. Ad-hoc codesign the app
       # -----------------------------------------------------------------------
       - name: Ad-hoc codesign the app
         run: |
@@ -75,7 +104,7 @@ jobs:
             dist/ZaloGroupChecker.app
 
       # -----------------------------------------------------------------------
-      # 7. Verify build output
+      # 9. Verify build output
       # -----------------------------------------------------------------------
       - name: Verify build
         run: |
@@ -88,7 +117,7 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # 8. Create ZIP archive
+      # 10. Create ZIP archive
       # -----------------------------------------------------------------------
       - name: Create ZIP archive
         run: |
@@ -97,7 +126,7 @@ jobs:
           ls -lh ZaloGroupChecker-macOS.zip
 
       # -----------------------------------------------------------------------
-      # 9. Upload artifact (available for 14 days in GitHub Actions UI)
+      # 11. Upload artifact (available for 14 days in GitHub Actions UI)
       # -----------------------------------------------------------------------
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -107,7 +136,7 @@ jobs:
           retention-days: 14
 
       # -----------------------------------------------------------------------
-      # 10. Create GitHub Release (only on version tags)
+      # 12. Create GitHub Release (only on version tags)
       # -----------------------------------------------------------------------
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -127,7 +156,7 @@ jobs:
 
             ### Requirements
             - macOS 11.0 (Big Sur) or later
-            - Intel or Apple Silicon M1/M2/M3 (universal2 binary)
+            - Apple Silicon (arm64) macOS build
             - Google Chrome browser installed
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
