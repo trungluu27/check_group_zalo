@@ -47,11 +47,26 @@ jobs:
           pip install pyinstaller
 
       # -----------------------------------------------------------------------
-      # Install Google Chrome        <-- THÊM VÀO ĐÂY
+      # Install Google Chrome
       # -----------------------------------------------------------------------
       - name: Install Google Chrome
         run: |
           brew install --cask google-chrome
+
+      # -----------------------------------------------------------------------
+      # 4.1 Log PyQt/Qt versions for crash diagnostics
+      # -----------------------------------------------------------------------
+      - name: Log PyQt and Qt runtime versions
+        run: |
+          python - <<'PY'
+          import sys
+          from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR, QLibraryInfo
+          print(f"Python: {sys.version}")
+          print(f"PyQt6: {PYQT_VERSION_STR}")
+          print(f"Qt: {QT_VERSION_STR}")
+          print(f"Qt Plugins Path: {QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)}")
+          PY
+          pip show PyQt6 || true
 
       # -----------------------------------------------------------------------
       # 5. Download ChromeDriver matching the runner's Chrome version
@@ -95,7 +110,30 @@ jobs:
           done
 
       # -----------------------------------------------------------------------
-      # 8. Ad-hoc codesign the app
+      # 8. Verify plugin cleanup results (fail fast if still present)
+      # -----------------------------------------------------------------------
+      - name: Verify Qt permission/location plugins are removed
+        run: |
+          APP="dist/ZaloGroupChecker.app"
+
+          echo "[INFO] Remaining permission plugin files (if any):"
+          find "$APP/Contents" -type f -path "*/plugins/permissions/*" -print || true
+
+          echo "[INFO] Remaining location/positioning plugin directories (if any):"
+          find "$APP/Contents" -type d \( -name geoservices -o -name position -o -name positioning -o -name location \) -print || true
+
+          REMAINING_PERMISSION_COUNT=$(find "$APP/Contents" -type f -path "*/plugins/permissions/*" | wc -l | tr -d ' ')
+          REMAINING_LOCATION_DIR_COUNT=$(find "$APP/Contents" -type d \( -name geoservices -o -name position -o -name positioning -o -name location \) | wc -l | tr -d ' ')
+
+          if [ "$REMAINING_PERMISSION_COUNT" -gt 0 ] || [ "$REMAINING_LOCATION_DIR_COUNT" -gt 0 ]; then
+            echo "❌ Problematic Qt permission/location plugin artifacts still exist after cleanup."
+            exit 1
+          fi
+
+          echo "✅ Qt permission/location plugin cleanup verified"
+
+      # -----------------------------------------------------------------------
+      # 9. Ad-hoc codesign the app
       # -----------------------------------------------------------------------
       - name: Ad-hoc codesign the app
         run: |
@@ -104,7 +142,7 @@ jobs:
             dist/ZaloGroupChecker.app
 
       # -----------------------------------------------------------------------
-      # 9. Verify build output
+      # 10. Verify build output
       # -----------------------------------------------------------------------
       - name: Verify build
         run: |
@@ -117,7 +155,7 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # 10. Create ZIP archive
+      # 11. Create ZIP archive
       # -----------------------------------------------------------------------
       - name: Create ZIP archive
         run: |
@@ -126,7 +164,7 @@ jobs:
           ls -lh ZaloGroupChecker-macOS.zip
 
       # -----------------------------------------------------------------------
-      # 11. Upload artifact (available for 14 days in GitHub Actions UI)
+      # 12. Upload artifact (available for 14 days in GitHub Actions UI)
       # -----------------------------------------------------------------------
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -136,7 +174,7 @@ jobs:
           retention-days: 14
 
       # -----------------------------------------------------------------------
-      # 12. Create GitHub Release (only on version tags)
+      # 13. Create GitHub Release (only on version tags)
       # -----------------------------------------------------------------------
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')

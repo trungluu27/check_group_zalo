@@ -33,6 +33,18 @@ python resources/download_chromedriver.py || {
     echo "          App will fall back to webdriver-manager at runtime."
 }
 
+# Log Python / PyQt / Qt versions for crash diagnostics
+echo "[INFO] Python / PyQt / Qt runtime versions..."
+python - <<'PY'
+import sys
+from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR, QLibraryInfo
+print(f"Python: {sys.version}")
+print(f"PyQt6: {PYQT_VERSION_STR}")
+print(f"Qt: {QT_VERSION_STR}")
+print(f"Qt Plugins Path: {QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)}")
+PY
+pip show PyQt6 || true
+
 # Clean previous builds
 echo "[INFO] Cleaning previous builds..."
 rm -rf build dist
@@ -66,6 +78,23 @@ for DIR in "${PLUGIN_DIRS[@]}"; do
     rm -rf "$DIR/geoservices" "$DIR/position" "$DIR/positioning" "$DIR/location" || true
   fi
 done
+
+# Verify plugin cleanup result and fail fast if artifacts still exist
+REMAINING_PERMISSION_COUNT=$(find "$APP/Contents" -type f -path "*/plugins/permissions/*" | wc -l | tr -d ' ')
+REMAINING_LOCATION_DIR_COUNT=$(find "$APP/Contents" -type d \( -name geoservices -o -name position -o -name positioning -o -name location \) | wc -l | tr -d ' ')
+
+echo "[INFO] Remaining permission plugin files: $REMAINING_PERMISSION_COUNT"
+find "$APP/Contents" -type f -path "*/plugins/permissions/*" -print || true
+
+echo "[INFO] Remaining location/positioning plugin dirs: $REMAINING_LOCATION_DIR_COUNT"
+find "$APP/Contents" -type d \( -name geoservices -o -name position -o -name positioning -o -name location \) -print || true
+
+if [ "$REMAINING_PERMISSION_COUNT" -gt 0 ] || [ "$REMAINING_LOCATION_DIR_COUNT" -gt 0 ]; then
+  echo "[ERROR] Problematic Qt permission/location plugin artifacts still exist after cleanup."
+  exit 1
+fi
+
+echo "[OK] Qt permission/location plugin cleanup verified"
 
 if [ -d "dist/ZaloGroupChecker.app" ]; then
     echo ""
