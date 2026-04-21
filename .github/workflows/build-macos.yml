@@ -8,8 +8,8 @@ on:
 
 jobs:
   build-macos:
-    name: Build macOS .app (arm64)
-    runs-on: macos-latest
+    name: Build macOS .app (Apple Silicon)
+    runs-on: macos-14    # macos-14 = Apple Silicon runner (arm64)
 
     steps:
       # -----------------------------------------------------------------------
@@ -19,13 +19,13 @@ jobs:
         uses: actions/checkout@v4
 
       # -----------------------------------------------------------------------
-      # 2. Setup Python
+      # 2. Setup Python (arm64 to match macos-14 runner)
       # -----------------------------------------------------------------------
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-  
+
       # -----------------------------------------------------------------------
       # 3. Cache pip packages
       # -----------------------------------------------------------------------
@@ -47,28 +47,6 @@ jobs:
           pip install pyinstaller
 
       # -----------------------------------------------------------------------
-      # Install Google Chrome
-      # -----------------------------------------------------------------------
-      - name: Install Google Chrome
-        run: |
-          brew install --cask google-chrome
-
-      # -----------------------------------------------------------------------
-      # 4.1 Log PyQt/Qt versions for crash diagnostics
-      # -----------------------------------------------------------------------
-      - name: Log PyQt and Qt runtime versions
-        run: |
-          python - <<'PY'
-          import sys
-          from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR, QLibraryInfo
-          print(f"Python: {sys.version}")
-          print(f"PyQt6: {PYQT_VERSION_STR}")
-          print(f"Qt: {QT_VERSION_STR}")
-          print(f"Qt Plugins Path: {QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)}")
-          PY
-          pip show PyQt6 || true
-
-      # -----------------------------------------------------------------------
       # 5. Download ChromeDriver matching the runner's Chrome version
       # -----------------------------------------------------------------------
       - name: Download ChromeDriver for bundling
@@ -81,90 +59,89 @@ jobs:
         run: pyinstaller ZaloGroupChecker.spec --noconfirm
 
       # -----------------------------------------------------------------------
-      # 7. Remove problematic Qt location/positioning permission plugins
-      # (prevents startup crash on some macOS 15 ARM systems)
+      # 7. Verify Qt plugins, qt.conf, and bundle structure
+      #    (This is the critical check — catches the 3 crash-on-launch causes:
+      #      - missing platforms/libqcocoa.dylib
+      #      - missing qt.conf
+      #      - malformed .app bundle)
       # -----------------------------------------------------------------------
-      - name: Remove problematic Qt permission/location plugins
+      - name: Verify build output
         run: |
           APP="dist/ZaloGroupChecker.app"
 
-          # PyQt6 Qt plugin locations in PyInstaller bundles (vary by version/layout)
-          PLUGIN_DIRS=(
-            "$APP/Contents/Frameworks/PyQt6/Qt6/plugins"
-            "$APP/Contents/MacOS/PyQt6/Qt6/plugins"
-            "$APP/Contents/Resources/PyQt6/Qt6/plugins"
-          )
-
-          for DIR in "${PLUGIN_DIRS[@]}"; do
-            if [ -d "$DIR" ]; then
-              echo "[INFO] Scanning $DIR"
-
-              # Remove permissions plugins related to location services
-              if [ -d "$DIR/permissions" ]; then
-                find "$DIR/permissions" -type f \( -iname "*location*" -o -iname "*position*" \) -print -delete || true
-              fi
-
-              # Remove Qt location/positioning plugin trees if present
-              rm -rf "$DIR/geoservices" "$DIR/position" "$DIR/positioning" "$DIR/location" || true
-            fi
-          done
-
-      # -----------------------------------------------------------------------
-      # 8. Verify plugin cleanup results (fail fast if still present)
-      # -----------------------------------------------------------------------
-      - name: Verify Qt permission/location plugins are removed
-        run: |
-          APP="dist/ZaloGroupChecker.app"
-
-          echo "[INFO] Remaining permission plugin files (if any):"
-          find "$APP/Contents" -type f -path "*/plugins/permissions/*" -print || true
-
-          echo "[INFO] Remaining location/positioning plugin directories (if any):"
-          find "$APP/Contents" -type d \( -name geoservices -o -name position -o -name positioning -o -name location \) -print || true
-
-          REMAINING_PERMISSION_COUNT=$(find "$APP/Contents" -type f -path "*/plugins/permissions/*" | wc -l | tr -d ' ')
-          REMAINING_LOCATION_DIR_COUNT=$(find "$APP/Contents" -type d \( -name geoservices -o -name position -o -name positioning -o -name location \) | wc -l | tr -d ' ')
-
-          if [ "$REMAINING_PERMISSION_COUNT" -gt 0 ] || [ "$REMAINING_LOCATION_DIR_COUNT" -gt 0 ]; then
-            echo "❌ Problematic Qt permission/location plugin artifacts still exist after cleanup."
+          if [ ! -d "$APP" ]; then
+            echo "❌ Build failed — $APP not found"
             exit 1
           fi
+          echo "✅ $APP created"
+          du -sh "$APP"
 
-          echo "✅ Qt permission/location plugin cleanup verified"
-
-      # -----------------------------------------------------------------------
-      # 9. Ad-hoc codesign the app
-      # -----------------------------------------------------------------------
-      - name: Ad-hoc codesign the app
-        run: |
-          codesign --force --deep --sign - \
-            --entitlements resources/entitlements.plist \
-            dist/ZaloGroupChecker.app
-
-      # -----------------------------------------------------------------------
-      # 10. Verify build output
-      # -----------------------------------------------------------------------
-      - name: Verify build
-        run: |
-          if [ -d "dist/ZaloGroupChecker.app" ]; then
-            echo "✅ ZaloGroupChecker.app created successfully"
-            du -sh dist/ZaloGroupChecker.app
+          echo ""
+          echo "--- Checking Qt platform plugin (libqcocoa.dylib) ---"
+          if find "$APP" -name 'libqcocoa.dylib' | grep -q .; then
+            find "$APP" -name 'libqcocoa.dylib'
+            echo "✅ Qt cocoa platform plugin present"
           else
-            echo "❌ Build failed — ZaloGroupChecker.app not found"
+            echo "❌ libqcocoa.dylib NOT FOUND — app will crash at launch"
             exit 1
           fi
 
+          echo ""
+          echo "--- Checking qt.conf ---"
+          if find "$APP" -name 'qt.conf' | grep -q .; then
+            find "$APP" -name 'qt.conf' -exec echo "{}" \; -exec cat {} \;
+            echo "✅ qt.conf present"
+          else
+            echo "⚠️  qt.conf not found (Qt may auto-detect, but recommended to have)"
+          fi
+
+          echo ""
+          echo "--- Checking bundle structure ---"
+          test -f "$APP/Contents/Info.plist" && echo "✅ Info.plist" || { echo "❌ Info.plist missing"; exit 1; }
+          test -f "$APP/Contents/MacOS/ZaloGroupChecker" && echo "✅ main executable" || { echo "❌ main executable missing"; exit 1; }
+          test -d "$APP/Contents/Resources" && echo "✅ Resources/" || { echo "❌ Resources/ missing"; exit 1; }
+
       # -----------------------------------------------------------------------
-      # 11. Create ZIP archive
+      # 8. Post-process: strip quarantine, fix perms, ad-hoc codesign
+      #    This prevents "app is damaged" / Gatekeeper errors on first launch.
+      # -----------------------------------------------------------------------
+      - name: Strip quarantine and set executable permissions
+        run: |
+          APP="dist/ZaloGroupChecker.app"
+          # Remove any extended attributes (quarantine, etc.)
+          xattr -cr "$APP"
+          # Main executable
+          chmod +x "$APP/Contents/MacOS/ZaloGroupChecker"
+          # Any bundled chromedriver binaries
+          find "$APP" -type f -name 'chromedriver*' -exec chmod +x {} \; || true
+          echo "✅ Quarantine stripped, executables marked +x"
+
+      - name: Ad-hoc codesign the .app
+        run: |
+          APP="dist/ZaloGroupChecker.app"
+          # Ad-hoc sign (identity = "-") with entitlements so Gatekeeper allows launch.
+          # Real distribution requires a Developer ID; ad-hoc is enough for
+          # right-click → Open bypass.
+          codesign --force --deep --options runtime \
+                   --entitlements resources/entitlements.plist \
+                   --sign - "$APP"
+          echo ""
+          echo "--- Verifying signature ---"
+          codesign --verify --deep --strict --verbose=2 "$APP" || true
+          spctl --assess --type execute --verbose=2 "$APP" || true
+
+      # -----------------------------------------------------------------------
+      # 9. Create ZIP archive (ditto preserves xattrs/signing correctly)
       # -----------------------------------------------------------------------
       - name: Create ZIP archive
         run: |
           cd dist
-          zip -r ZaloGroupChecker-macOS.zip ZaloGroupChecker.app
+          # Use ditto instead of zip — preserves code signature & resource forks
+          ditto -c -k --sequesterRsrc --keepParent ZaloGroupChecker.app ZaloGroupChecker-macOS.zip
           ls -lh ZaloGroupChecker-macOS.zip
 
       # -----------------------------------------------------------------------
-      # 12. Upload artifact (available for 14 days in GitHub Actions UI)
+      # 10. Upload artifact (available for 14 days in GitHub Actions UI)
       # -----------------------------------------------------------------------
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -174,7 +151,7 @@ jobs:
           retention-days: 14
 
       # -----------------------------------------------------------------------
-      # 13. Create GitHub Release (only on version tags)
+      # 11. Create GitHub Release (only on version tags)
       # -----------------------------------------------------------------------
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -189,12 +166,16 @@ jobs:
             1. Download `ZaloGroupChecker-macOS.zip`
             2. Unzip and drag `ZaloGroupChecker.app` to your Applications folder
             3. First launch: **Right-click → Open** (to bypass Gatekeeper)
-            4. Make sure **Google Chrome** is installed on your Mac
+            4. If macOS still blocks: run in Terminal once:
+               ```
+               xattr -cr /Applications/ZaloGroupChecker.app
+               ```
+            5. Make sure **Google Chrome** is installed on your Mac
                → Download: https://www.google.com/chrome/
 
             ### Requirements
             - macOS 11.0 (Big Sur) or later
-            - Apple Silicon (arm64) macOS build
+            - **Apple Silicon (M1/M2/M3/M4)** — this build is arm64 only
             - Google Chrome browser installed
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

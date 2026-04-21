@@ -64,8 +64,8 @@ class WorkerThread(QThread):
             self.progress.emit("🔍 Analyzing page structure...")
             scraper.debug_page_structure(progress_callback=self.progress.emit)
             
-            self.progress.emit("👥 Scraping group members (this may take a while)...")
-            group_members = scraper.scrape_members(max_scrolls=100, progress_callback=self.progress.emit)
+            self.progress.emit("👥 Scraping group members (deep scan mode, may take longer)...")
+            group_members = scraper.scrape_members(max_scrolls=160, progress_callback=self.progress.emit)
             
             scraper.close()
             

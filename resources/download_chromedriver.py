@@ -160,7 +160,7 @@ def find_chromedriver_url(major_version: int, platform_key: str) -> str:
             if item["platform"] == platform_key:
                 best_url = item["url"]
                 best_ver = ver_str
-                # break  # take last matching (they're ordered ascending)
+                break  # take last matching (they're ordered ascending)
 
     if not best_url:
         # Fall back to latest stable
@@ -212,10 +212,6 @@ def download_chromedriver(url: str, platform_key: str) -> Path:
 
 
 def main():
-    if OUTPUT_DIR.exists():
-        shutil.rmtree(OUTPUT_DIR)
-        print(f"[INFO] Cleaned old ChromeDriver at {OUTPUT_DIR}")
-    
     print("=" * 50)
     print(" ChromeDriver Downloader for PyInstaller Bundle")
     print("=" * 50)
