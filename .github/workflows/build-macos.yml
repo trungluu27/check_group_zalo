@@ -119,16 +119,61 @@ jobs:
       - name: Ad-hoc codesign the .app
         run: |
           APP="dist/ZaloGroupChecker.app"
-          # Ad-hoc sign (identity = "-") with entitlements so Gatekeeper allows launch.
-          # Real distribution requires a Developer ID; ad-hoc is enough for
-          # right-click → Open bypass.
-          codesign --force --deep --options runtime \
+          # Ad-hoc sign (identity = "-") WITHOUT --options runtime (hardened runtime
+          # requires a real Developer ID; ad-hoc + hardened = silent crash on launch).
+          codesign --force --deep \
                    --entitlements resources/entitlements.plist \
                    --sign - "$APP"
           echo ""
           echo "--- Verifying signature ---"
           codesign --verify --deep --strict --verbose=2 "$APP" || true
-          spctl --assess --type execute --verbose=2 "$APP" || true
+          codesign -dv --entitlements :- "$APP" || true
+
+      # -----------------------------------------------------------------------
+      # 8b. SMOKE TEST — actually launch the .app on the CI runner and check
+      #     that it doesn't crash within 10 seconds. Catches silent crashes
+      #     that the structural verify step cannot detect.
+      # -----------------------------------------------------------------------
+      - name: Smoke test (launch app, capture crash)
+        run: |
+          APP="dist/ZaloGroupChecker.app"
+          BIN="$APP/Contents/MacOS/ZaloGroupChecker"
+
+          echo "--- Direct launch of binary (captures stderr) ---"
+          # Run the inner binary directly so we see stdout/stderr.
+          # QT_DEBUG_PLUGINS=1 prints which Qt plugin is loaded (or why it fails).
+          # Kill after 8s — long enough for Qt init, short enough for CI.
+          set +e
+          QT_DEBUG_PLUGINS=1 QT_LOGGING_RULES="*=true" \
+            timeout 8 "$BIN" > smoke_stdout.log 2> smoke_stderr.log
+          RC=$?
+          set -e
+
+          echo "Exit code: $RC  (124 = timeout = app stayed alive = OK)"
+          echo ""
+          echo "===== STDOUT ====="
+          cat smoke_stdout.log || true
+          echo ""
+          echo "===== STDERR ====="
+          cat smoke_stderr.log || true
+          echo ""
+          echo "===== ~/Library/Application Support/ZaloGroupChecker/ ====="
+          ls -la "$HOME/Library/Application Support/ZaloGroupChecker/" 2>/dev/null || true
+          if [ -f "$HOME/Library/Application Support/ZaloGroupChecker/startup_crash.log" ]; then
+            echo "--- startup_crash.log ---"
+            cat "$HOME/Library/Application Support/ZaloGroupChecker/startup_crash.log"
+          fi
+          if [ -f "$HOME/Library/Application Support/ZaloGroupChecker/logs/app.log" ]; then
+            echo "--- app.log ---"
+            cat "$HOME/Library/Application Support/ZaloGroupChecker/logs/app.log"
+          fi
+
+          # Treat anything other than "still running (124)" or clean exit (0) as failure.
+          if [ "$RC" != "124" ] && [ "$RC" != "0" ]; then
+            echo "❌ App crashed on launch (exit $RC)"
+            exit 1
+          fi
+          echo "✅ App launched without crashing"
 
       # -----------------------------------------------------------------------
       # 9. Create ZIP archive (ditto preserves xattrs/signing correctly)
@@ -149,6 +194,18 @@ jobs:
           name: ZaloGroupChecker-macOS
           path: dist/ZaloGroupChecker-macOS.zip
           retention-days: 14
+
+      - name: Upload diagnostic logs (always, even on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-diagnostics
+          path: |
+            smoke_stdout.log
+            smoke_stderr.log
+            /Users/runner/Library/Application Support/ZaloGroupChecker/**
+          retention-days: 7
+          if-no-files-found: ignore
 
       # -----------------------------------------------------------------------
       # 11. Create GitHub Release (only on version tags)
