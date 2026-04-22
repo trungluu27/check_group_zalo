@@ -140,16 +140,33 @@ jobs:
           BIN="$APP/Contents/MacOS/ZaloGroupChecker"
 
           echo "--- Direct launch of binary (captures stderr) ---"
-          # Run the inner binary directly so we see stdout/stderr.
-          # QT_DEBUG_PLUGINS=1 prints which Qt plugin is loaded (or why it fails).
-          # Kill after 8s — long enough for Qt init, short enough for CI.
+          # macOS has no `timeout` command. Launch in background, wait 8s,
+          # then kill. If the process was still alive when we killed it,
+          # that means Qt init succeeded => smoke test PASS.
           set +e
           QT_DEBUG_PLUGINS=1 QT_LOGGING_RULES="*=true" \
-            timeout 8 "$BIN" > smoke_stdout.log 2> smoke_stderr.log
-          RC=$?
+            "$BIN" > smoke_stdout.log 2> smoke_stderr.log &
+          PID=$!
+          SURVIVED=0
+          for i in 1 2 3 4 5 6 7 8; do
+            sleep 1
+            if ! kill -0 "$PID" 2>/dev/null; then
+              # Process exited on its own
+              break
+            fi
+          done
+          if kill -0 "$PID" 2>/dev/null; then
+            SURVIVED=1
+            kill -9 "$PID" 2>/dev/null || true
+            wait "$PID" 2>/dev/null || true
+            RC=124
+          else
+            wait "$PID"
+            RC=$?
+          fi
           set -e
 
-          echo "Exit code: $RC  (124 = timeout = app stayed alive = OK)"
+          echo "Exit code: $RC  (124 = stayed alive for 8s = OK)"
           echo ""
           echo "===== STDOUT ====="
           cat smoke_stdout.log || true
@@ -168,12 +185,13 @@ jobs:
             cat "$HOME/Library/Application Support/ZaloGroupChecker/logs/app.log"
           fi
 
-          # Treat anything other than "still running (124)" or clean exit (0) as failure.
-          if [ "$RC" != "124" ] && [ "$RC" != "0" ]; then
-            echo "❌ App crashed on launch (exit $RC)"
+          # Only "still running after 8s" counts as pass.
+          # A GUI app exiting on its own within 8s means it crashed.
+          if [ "$SURVIVED" != "1" ]; then
+            echo "❌ App did NOT stay alive — crashed on launch (exit $RC)"
             exit 1
           fi
-          echo "✅ App launched without crashing"
+          echo "✅ App launched and stayed alive for 8s"
 
       # -----------------------------------------------------------------------
       # 9. Create ZIP archive (ditto preserves xattrs/signing correctly)
