@@ -420,10 +420,6 @@ class ZaloScraper:
                 "  var candidates = Array.from(document.querySelectorAll(\"aside div[class*='scroll'], aside div[class*='list']\"));"
                 "  target = candidates.sort(function(a,b){return (b.scrollHeight-b.clientHeight)-(a.scrollHeight-a.clientHeight);})[0] || null;"
                 "}"
-                "if(!target){"
-                "  var row = document.querySelector(\"div[class*='chat-box-member__info__name'], div[class*='member__info__name']\");"
-                "  if(row){ target = row.closest('aside') || row.parentElement; }"
-                "}"
                 "if(!target){return {advanced:false,max_remaining:0,container_count:0,target:'none'};}"
                 "var before = target.scrollTop || 0;"
                 "var maxTop = Math.max(0, target.scrollHeight - target.clientHeight);"
@@ -462,10 +458,6 @@ class ZaloScraper:
                     "if(!target){"
                     "  var candidates = Array.from(document.querySelectorAll(\"aside div[class*='scroll'], aside div[class*='list']\"));"
                     "  target = candidates.sort(function(a,b){return (b.scrollHeight-b.clientHeight)-(a.scrollHeight-a.clientHeight);})[0] || null;"
-                    "}"
-                    "if(!target){"
-                    "  var row = document.querySelector(\"div[class*='chat-box-member__info__name'], div[class*='member__info__name']\");"
-                    "  if(row){ target = row.closest('aside') || row.parentElement; }"
                     "}"
                     "if(!target){return {advanced:false,max_remaining:0,container_count:0,target:'none'};}"
                     "var before = target.scrollTop || 0;"
@@ -539,13 +531,6 @@ class ZaloScraper:
                 "var p=document.querySelector(\"div[id='member-group']\");"
                 "if(!p){return 0;} return p.scrollTop||0;"
             )
-            max_top = self.driver.execute_script(
-                "var p=document.querySelector(\"div[id='member-group']\");"
-                "if(!p){return 0;} return Math.max(0,(p.scrollHeight||0)-(p.clientHeight||0));"
-            )
-            # Near bottom guard: skip keyboard fallback to avoid re-clicking members.
-            if float(max_top or 0) - float(before or 0) <= 2:
-                return False
 
             actions = ActionChains(self.driver)
             for _ in range(max(1, page_down_times)):

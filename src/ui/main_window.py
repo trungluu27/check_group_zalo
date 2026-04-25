@@ -431,54 +431,48 @@ class MainWindow(QMainWindow):
         self.fuzzy_check.stateChanged.connect(self.toggle_threshold)
         layout.addWidget(self.fuzzy_check)
         
-        # Threshold setting - more compact layout
-        threshold_layout = QHBoxLayout()
-        threshold_layout.setSpacing(8)
+        # Similarity + batch limit on one row
+        settings_row = QHBoxLayout()
+        settings_row.setSpacing(8)
         
         threshold_label = QLabel("Similarity:")
         threshold_label.setFixedWidth(130)
         threshold_label.setStyleSheet("font-size: 12px; color: #1D1D1F;")
-        threshold_layout.addWidget(threshold_label)
+        settings_row.addWidget(threshold_label)
         
         self.threshold_input = QLineEdit()
         self.threshold_input.setText("0.85")
         self.threshold_input.setPlaceholderText("0.85")
         self.threshold_input.setFixedWidth(110)
-        self.threshold_input.setFixedHeight(34)
+        self.threshold_input.setFixedHeight(30)
         self.threshold_input.setToolTip("Nhập ngưỡng từ 0.5 đến 1.0")
-        threshold_layout.addWidget(self.threshold_input)
+        settings_row.addWidget(self.threshold_input)
 
         threshold_hint = QLabel("(0.5 - 1.0)")
         threshold_hint.setStyleSheet("font-size: 11px; color: #86868B;")
-        threshold_layout.addWidget(threshold_hint)
-        
-        threshold_layout.addStretch()
-        
-        layout.addLayout(threshold_layout)
+        settings_row.addWidget(threshold_hint)
 
-        # Batch limit setting
-        batch_layout = QHBoxLayout()
-        batch_layout.setSpacing(8)
+        settings_row.addSpacing(18)
 
         batch_label = QLabel("Groups to check:")
         batch_label.setFixedWidth(130)
         batch_label.setStyleSheet("font-size: 12px; color: #1D1D1F;")
-        batch_layout.addWidget(batch_label)
+        settings_row.addWidget(batch_label)
 
         self.max_groups_input = QLineEdit()
         self.max_groups_input.setText("0")
         self.max_groups_input.setPlaceholderText("0")
         self.max_groups_input.setFixedWidth(110)
-        self.max_groups_input.setFixedHeight(34)
+        self.max_groups_input.setFixedHeight(30)
         self.max_groups_input.setToolTip("0 = chạy toàn bộ group trong file")
-        batch_layout.addWidget(self.max_groups_input)
+        settings_row.addWidget(self.max_groups_input)
 
         batch_hint = QLabel("(0 = All)")
         batch_hint.setStyleSheet("font-size: 11px; color: #86868B;")
-        batch_layout.addWidget(batch_hint)
+        settings_row.addWidget(batch_hint)
 
-        batch_layout.addStretch()
-        layout.addLayout(batch_layout)
+        settings_row.addStretch()
+        layout.addLayout(settings_row)
         
         # Help text - more compact
         help_text = QLabel("💡 Higher = stricter matching (0.85 = 85% similar). Groups to check: 0 = All, 1/2/... = test nhanh nhóm đầu.")
