@@ -15,7 +15,7 @@ class WorkerThread(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
     
-    def __init__(self, excel_path: str, use_fuzzy: bool, threshold: float):
+    def __init__(self, excel_path: str, use_fuzzy: bool, threshold: float, max_groups: int = 0):
         """
         Initialize worker thread
         
@@ -23,11 +23,13 @@ class WorkerThread(QThread):
             excel_path: Path to Excel file
             use_fuzzy: Use fuzzy matching
             threshold: Fuzzy matching threshold
+            max_groups: Number of first groups to process (0 = all)
         """
         super().__init__()
         self.excel_path = excel_path
         self.use_fuzzy = use_fuzzy
         self.threshold = threshold
+        self.max_groups = max_groups
         
     def run(self):
         """Execute scraping and comparison in background"""
@@ -48,7 +50,15 @@ class WorkerThread(QThread):
                     "File cần có cột Group xe chứa link https://zalo.me/g/..."
                 )
 
-            self.progress.emit(f"✅ Detected {len(group_batches)} groups in input file")
+            total_groups_in_file = len(group_batches)
+            if self.max_groups > 0:
+                group_batches = group_batches[:self.max_groups]
+                self.progress.emit(
+                    f"✅ Detected {total_groups_in_file} groups, "
+                    f"processing first {len(group_batches)} groups"
+                )
+            else:
+                self.progress.emit(f"✅ Detected {total_groups_in_file} groups in input file")
 
             # Initialize browser once for whole batch
             first_group_url = group_batches[0]["group_url"]
@@ -137,6 +147,7 @@ class WorkerThread(QThread):
             self.finished.emit({
                 "mode": "batch",
                 "groups_count": len(group_batches),
+                "groups_total_in_file": total_groups_in_file,
                 "method": 'fuzzy' if self.use_fuzzy else 'exact',
                 "threshold": self.threshold,
                 "total_excel": total_excel,
@@ -460,9 +471,27 @@ class MainWindow(QMainWindow):
         threshold_layout.addStretch()
         
         layout.addLayout(threshold_layout)
+
+        # Batch limit setting
+        batch_layout = QHBoxLayout()
+        batch_layout.setSpacing(8)
+
+        batch_label = QLabel("Groups to check:")
+        batch_label.setStyleSheet("font-size: 12px; color: #1D1D1F;")
+        batch_layout.addWidget(batch_label)
+
+        self.max_groups_spin = QSpinBox()
+        self.max_groups_spin.setRange(0, 999)
+        self.max_groups_spin.setValue(0)
+        self.max_groups_spin.setSpecialValueText("All")
+        self.max_groups_spin.setToolTip("0 = chạy toàn bộ group trong file")
+        batch_layout.addWidget(self.max_groups_spin)
+
+        batch_layout.addStretch()
+        layout.addLayout(batch_layout)
         
         # Help text - more compact
-        help_text = QLabel("💡 Higher = stricter matching (0.85 = 85% similar)")
+        help_text = QLabel("💡 Higher = stricter matching (0.85 = 85% similar). Groups to check: 0 = All, 1/2/... = test nhanh nhóm đầu.")
         help_text.setStyleSheet("color: #86868B; font-size: 11px; padding-left: 2px;")
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
@@ -576,6 +605,7 @@ class MainWindow(QMainWindow):
         self.group_id.setEnabled(False)
         self.fuzzy_check.setEnabled(False)
         self.threshold_spin.setEnabled(False)
+        self.max_groups_spin.setEnabled(False)
         self.clear_btn.setEnabled(False)
         
         # Reset output actions for new run
@@ -593,7 +623,8 @@ class MainWindow(QMainWindow):
         use_fuzzy = self.fuzzy_check.isChecked()
         threshold = self.threshold_spin.value()
         
-        self.worker = WorkerThread(excel_path, use_fuzzy, threshold)
+        max_groups = self.max_groups_spin.value()
+        self.worker = WorkerThread(excel_path, use_fuzzy, threshold, max_groups=max_groups)
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.on_finished)
         self.worker.error.connect(self.on_error)
@@ -618,6 +649,7 @@ class MainWindow(QMainWindow):
         self.group_id.setEnabled(False)
         self.fuzzy_check.setEnabled(True)
         self.threshold_spin.setEnabled(self.fuzzy_check.isChecked())
+        self.max_groups_spin.setEnabled(True)
         self.clear_btn.setEnabled(True)
 
         # Enable output actions
@@ -630,6 +662,8 @@ class MainWindow(QMainWindow):
         self.results_display.append("📊 FINAL RESULTS")
         self.results_display.append("─"*60)
         self.results_display.append(f"🧩 Total groups processed: {results.get('groups_count', 1)}")
+        if results.get('groups_total_in_file', 0):
+            self.results_display.append(f"🗂️ Total groups in file: {results['groups_total_in_file']}")
         self.results_display.append(f"📋 Total usernames in Excel: {results['total_excel']}")
         self.results_display.append(f"🔍 Matching method: {results['method'].upper()}")
         if results['method'] == 'fuzzy':
@@ -675,6 +709,7 @@ class MainWindow(QMainWindow):
         self.group_id.setEnabled(False)
         self.fuzzy_check.setEnabled(True)
         self.threshold_spin.setEnabled(self.fuzzy_check.isChecked())
+        self.max_groups_spin.setEnabled(True)
         self.clear_btn.setEnabled(True)
 
         # Keep output actions enabled only if last output exists
