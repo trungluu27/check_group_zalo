@@ -93,6 +93,9 @@ class ZaloScraper:
                 progress_callback("Member list not detected yet. Retrying: group info -> view members...")
             self._click_group_info_button(progress_callback)
             self._click_view_members_button(progress_callback)
+            if not self._is_member_list_open():
+                # Extra fallback for unstable DOM: click by text directly.
+                self._try_click_members_by_xpath(progress_callback=progress_callback)
             time.sleep(2)
 
         if progress_callback:
@@ -124,19 +127,32 @@ class ZaloScraper:
         ]
         clicked = self._try_click_selectors(selectors)
         if not clicked:
-            # JS fallback: find element containing member-related Vietnamese text
+            # JS fallback: find the element containing member-related text,
+            # then click the nearest clickable ancestor.
             try:
-                self.driver.execute_script(
-                    "var texts = ['Xem th\u00e0nh vi\u00ean', 'th\u00e0nh vi\u00ean', 'members'];"
-                    "var all = document.querySelectorAll('aside div, aside button, aside span');"
-                    "for (var i = 0; i < all.length; i++) {"
-                    "  var t = (all[i].innerText || '').trim().toLowerCase();"
-                    "  if (texts.some(function(kw){return t.indexOf(kw.toLowerCase())>=0;}) && all[i].children.length===0){"
-                    "    all[i].click(); break;"
+                clicked = bool(self.driver.execute_script(
+                    "var texts = ['xem th\u00e0nh vi\u00ean', 'th\u00e0nh vi\u00ean', 'members'];"
+                    "var nodes = Array.from(document.querySelectorAll('aside div, aside button, aside span, aside a'));"
+                    "for (var i = 0; i < nodes.length; i++) {"
+                    "  var n = nodes[i];"
+                    "  var t = (n.innerText || n.textContent || '').trim().toLowerCase();"
+                    "  if (!t) { continue; }"
+                    "  if (!texts.some(function(kw){ return t.indexOf(kw) >= 0; })) { continue; }"
+                    "  var cur = n;"
+                    "  for (var depth = 0; depth < 6 && cur; depth++) {"
+                    "    var role = (cur.getAttribute && cur.getAttribute('role')) || '';"
+                    "    var cls = (cur.className || '').toString();"
+                    "    if (cur.tagName === 'BUTTON' || cur.tagName === 'A' || role === 'button' || cls.indexOf('btn') >= 0 || cur.onclick) {"
+                    "      cur.click();"
+                    "      return true;"
+                    "    }"
+                    "    cur = cur.parentElement;"
                     "  }"
+                    "  n.click();"
+                    "  return true;"
                     "}"
-                )
-                clicked = True
+                    "return false;"
+                ))
             except Exception:
                 pass
 
@@ -198,6 +214,10 @@ class ZaloScraper:
             "div[id='member-group'] div[class*='member__info__name'] > div",
             "div[id='member-group'] div[class*='chat-box-member__info__name']",
             "div[id='member-group'] div[class*='member__info__name']",
+            "div[class*='chat-box-member__info__name'] > div",
+            "div[class*='member__info__name'] > div",
+            "div[class*='chat-box-member__info__name']",
+            "div[class*='member__info__name']",
         ]
         all_selectors = [primary_selector] + fallback_selectors
         working_selector = None
@@ -303,12 +323,40 @@ class ZaloScraper:
                 continue
         return False
 
+    def _try_click_members_by_xpath(self, progress_callback=None) -> bool:
+        """
+        Fallback click strategy for unstable DOM: click element by visible text.
+        """
+        xpaths = [
+            "//*[contains(normalize-space(.), 'Xem thành viên')]",
+            "//*[contains(normalize-space(.), 'Thành viên')]",
+            "//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'members')]",
+        ]
+        for xp in xpaths:
+            try:
+                candidates = self.driver.find_elements(By.XPATH, xp)
+                for el in candidates:
+                    txt = (el.text or "").strip()
+                    if not txt:
+                        continue
+                    self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+                    self.driver.execute_script("arguments[0].click();", el)
+                    if progress_callback:
+                        progress_callback(f"✓ Opened members list via text match: {txt[:40]}")
+                    return True
+            except Exception:
+                continue
+        return False
+
     def _is_member_list_open(self) -> bool:
         # Check if member list panel has been opened and populated.
         try:
             return bool(self.driver.execute_script(
                 "var root = document.querySelector(\"div[id='member-group']\");"
-                "if(!root){return false;}"
+                "if(!root){"
+                "  var globalRows = document.querySelectorAll(\"div[class*='chat-box-member__info__name'], div[class*='member__info__name']\").length;"
+                "  return globalRows > 0;"
+                "}"
                 "var hasRows = root.querySelectorAll(\"div[class*='chat-box-member'], div[class*='member__info__name']\").length > 0;"
                 "var canScroll = (root.scrollHeight || 0) > (root.clientHeight || 0);"
                 "return hasRows || canScroll;"
@@ -372,6 +420,10 @@ class ZaloScraper:
                 "  var candidates = Array.from(document.querySelectorAll(\"aside div[class*='scroll'], aside div[class*='list']\"));"
                 "  target = candidates.sort(function(a,b){return (b.scrollHeight-b.clientHeight)-(a.scrollHeight-a.clientHeight);})[0] || null;"
                 "}"
+                "if(!target){"
+                "  var row = document.querySelector(\"div[class*='chat-box-member__info__name'], div[class*='member__info__name']\");"
+                "  if(row){ target = row.closest('aside') || row.parentElement; }"
+                "}"
                 "if(!target){return {advanced:false,max_remaining:0,container_count:0,target:'none'};}"
                 "var before = target.scrollTop || 0;"
                 "var maxTop = Math.max(0, target.scrollHeight - target.clientHeight);"
@@ -410,6 +462,10 @@ class ZaloScraper:
                     "if(!target){"
                     "  var candidates = Array.from(document.querySelectorAll(\"aside div[class*='scroll'], aside div[class*='list']\"));"
                     "  target = candidates.sort(function(a,b){return (b.scrollHeight-b.clientHeight)-(a.scrollHeight-a.clientHeight);})[0] || null;"
+                    "}"
+                    "if(!target){"
+                    "  var row = document.querySelector(\"div[class*='chat-box-member__info__name'], div[class*='member__info__name']\");"
+                    "  if(row){ target = row.closest('aside') || row.parentElement; }"
                     "}"
                     "if(!target){return {advanced:false,max_remaining:0,container_count:0,target:'none'};}"
                     "var before = target.scrollTop || 0;"
@@ -506,7 +562,11 @@ class ZaloScraper:
         try:
             raw = self.driver.execute_script(
                 "var root = document.querySelector(\"div[id='member-group']\");"
-                "if(!root){ return []; }"
+                "if(!root){"
+                "  var rows = Array.from(document.querySelectorAll(\"div[class*='chat-box-member__info__name'], div[class*='member__info__name']\"));"
+                "  if(rows.length === 0){ return []; }"
+                "  root = rows[0].closest('aside') || rows[0].parentElement || document.body;"
+                "}"
                 "var selectors = ["
                 "  \"div[class*='chat-box-member__info__name']\","
                 "  \"div[class*='member__info__name']\""
