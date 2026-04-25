@@ -345,7 +345,7 @@ class MainWindow(QMainWindow):
                 content: "✓";
                 color: white;
             }
-            QSpinBox, QDoubleSpinBox {
+            QAbstractSpinBox, QSpinBox, QDoubleSpinBox {
                 border: 1px solid #D1D1D6;
                 border-radius: 6px;
                 padding: 6px 10px;
@@ -356,22 +356,30 @@ class MainWindow(QMainWindow):
                 selection-color: #FFFFFF;
                 min-width: 80px;
             }
-            QSpinBox:disabled, QDoubleSpinBox:disabled {
-                background-color: #F5F5F7;
-                color: #86868B;
-            }
-            QSpinBox:focus, QDoubleSpinBox:focus {
-                border: 2px solid #007AFF;
-            }
-            QSpinBox::up-button, QDoubleSpinBox::up-button,
-            QSpinBox::down-button, QDoubleSpinBox::down-button {
+            QAbstractSpinBox::up-button, QSpinBox::up-button, QDoubleSpinBox::up-button,
+            QAbstractSpinBox::down-button, QSpinBox::down-button, QDoubleSpinBox::down-button {
                 subcontrol-origin: border;
-            }
-            QSpinBox::up-button, QDoubleSpinBox::up-button,
-            QSpinBox::down-button, QDoubleSpinBox::down-button {
                 border: none;
                 background-color: transparent;
                 width: 20px;
+            }
+            QAbstractSpinBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {
+                background-color: #F5F5F7;
+                color: #86868B;
+            }
+            QAbstractSpinBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+                border: 2px solid #007AFF;
+            }
+            QSpinBox QLineEdit, QDoubleSpinBox QLineEdit, QAbstractSpinBox QLineEdit {
+                color: #1D1D1F;
+                background: transparent;
+                border: none;
+                selection-background-color: #007AFF;
+                selection-color: #FFFFFF;
+            }
+            QSpinBox::up-button, QDoubleSpinBox::up-button,
+            QSpinBox::down-button, QDoubleSpinBox::down-button {
+                color: #1D1D1F;
             }
             QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
             QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
@@ -468,7 +476,8 @@ class MainWindow(QMainWindow):
         threshold_layout.setSpacing(8)
         
         threshold_label = QLabel("Similarity:")
-        threshold_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #1D1D1F;")
+        threshold_label.setFixedWidth(130)
+        threshold_label.setStyleSheet("font-size: 12px; color: #1D1D1F;")
         threshold_layout.addWidget(threshold_label)
         
         self.threshold_spin = QDoubleSpinBox()
@@ -488,7 +497,8 @@ class MainWindow(QMainWindow):
         batch_layout.setSpacing(8)
 
         batch_label = QLabel("Groups to check:")
-        batch_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #1D1D1F;")
+        batch_label.setFixedWidth(130)
+        batch_label.setStyleSheet("font-size: 12px; color: #1D1D1F;")
         batch_layout.addWidget(batch_label)
 
         self.max_groups_spin = QSpinBox()
