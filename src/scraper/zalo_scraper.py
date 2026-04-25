@@ -434,13 +434,7 @@ class ZaloScraper:
                 "  target: target.id || target.className || 'member-panel'"
                 "};"
             )
-            if (
-                not state
-                or (
-                    not state.get("advanced", False)
-                    and float(state.get("max_remaining", 0) or 0) > 2
-                )
-            ):
+            if not state or not state.get("advanced", False):
                 # Fallback: simulate real user input to trigger virtualized lists.
                 moved = self._user_like_scroll_member_panel(page_down_times=1)
                 if moved and isinstance(state, dict):
@@ -479,11 +473,7 @@ class ZaloScraper:
                 )
                 last_state = state or last_state
 
-                if (
-                    not last_state.get("advanced", False)
-                    and i % 3 == 0
-                    and float(last_state.get("max_remaining", 0) or 0) > 2
-                ):
+                if not last_state.get("advanced", False) and i % 3 == 0:
                     # Throttled fallback: avoid repetitive click/keypress loops near the end.
                     moved = self._user_like_scroll_member_panel(
                         page_down_times=1,
@@ -521,7 +511,9 @@ class ZaloScraper:
         try:
             panel = self.driver.find_element(By.CSS_SELECTOR, "div[id='member-group']")
             now = time.time()
-            should_click = force_click or (now - self._last_panel_focus_at > 1.5)
+            # Keep old click-focus behavior for reliability, but click much less
+            # often to avoid repeatedly selecting the same member near list end.
+            should_click = force_click or (now - self._last_panel_focus_at > 6.0)
             if should_click:
                 self.driver.execute_script("arguments[0].setAttribute('tabindex','-1');", panel)
                 ActionChains(self.driver).move_to_element(panel).click(panel).perform()
