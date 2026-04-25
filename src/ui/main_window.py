@@ -203,10 +203,6 @@ class MainWindow(QMainWindow):
         file_section = self.create_file_section()
         main_layout.addWidget(file_section)
         
-        # Group URL section
-        url_section = self.create_url_section()
-        main_layout.addWidget(url_section)
-        
         # Settings section
         settings_section = self.create_settings_section()
         main_layout.addWidget(settings_section)
@@ -400,25 +396,6 @@ class MainWindow(QMainWindow):
         group.setLayout(layout)
         return group
         
-    def create_url_section(self):
-        """Create Group ID input section"""
-        group = QGroupBox("🌐 Group Detection Mode")
-        layout = QVBoxLayout()
-        layout.setSpacing(8)
-        
-        self.group_id = QLineEdit()
-        self.group_id.setPlaceholderText("Auto mode: detect groups from Excel (no manual input needed)")
-        self.group_id.setEnabled(False)
-        layout.addWidget(self.group_id)
-        
-        # Help text - more compact
-        help_text = QLabel("💡 App sẽ tự đọc các link https://zalo.me/g/... trong cột Group xe và chạy lần lượt")
-        help_text.setStyleSheet("color: #86868B; font-size: 11px; padding-left: 2px;")
-        layout.addWidget(help_text)
-        
-        group.setLayout(layout)
-        return group
-        
     def create_settings_section(self):
         """Create settings section with modern styling"""
         group = QGroupBox("⚙️ Matching Settings")
@@ -582,7 +559,6 @@ class MainWindow(QMainWindow):
         # Disable controls
         self.start_btn.setEnabled(False)
         self.browse_btn.setEnabled(False)
-        self.group_id.setEnabled(False)
         self.fuzzy_check.setEnabled(False)
         self.threshold_input.setEnabled(False)
         self.max_groups_input.setEnabled(False)
@@ -667,7 +643,6 @@ class MainWindow(QMainWindow):
         # Re-enable controls
         self.start_btn.setEnabled(True)
         self.browse_btn.setEnabled(True)
-        self.group_id.setEnabled(False)
         self.fuzzy_check.setEnabled(True)
         self.threshold_input.setEnabled(self.fuzzy_check.isChecked())
         self.max_groups_input.setEnabled(True)
@@ -727,7 +702,6 @@ class MainWindow(QMainWindow):
         # Re-enable controls
         self.start_btn.setEnabled(True)
         self.browse_btn.setEnabled(True)
-        self.group_id.setEnabled(False)
         self.fuzzy_check.setEnabled(True)
         self.threshold_input.setEnabled(self.fuzzy_check.isChecked())
         self.max_groups_input.setEnabled(True)
