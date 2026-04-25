@@ -15,109 +15,146 @@ class WorkerThread(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
     
-    def __init__(self, excel_path: str, group_id: str, use_fuzzy: bool, threshold: float):
+    def __init__(self, excel_path: str, use_fuzzy: bool, threshold: float):
         """
         Initialize worker thread
         
         Args:
             excel_path: Path to Excel file
-            group_id: Zalo group ID
             use_fuzzy: Use fuzzy matching
             threshold: Fuzzy matching threshold
         """
         super().__init__()
         self.excel_path = excel_path
-        self.group_id = group_id
         self.use_fuzzy = use_fuzzy
         self.threshold = threshold
         
     def run(self):
         """Execute scraping and comparison in background"""
+        scraper = None
         try:
             from excel.reader import ExcelReader
             from excel.writer import ExcelWriter
             from scraper.zalo_scraper import ZaloScraper
             from core.comparator import Comparator
             
-            # Read Excel
+            # Read grouped Excel and run all groups in sequence
             self.progress.emit("📁 Reading Excel file...")
             reader = ExcelReader(self.excel_path)
-            contacts = reader.get_contacts()
-            excel_names = [c['name'] for c in contacts]
-            self.progress.emit(f"✅ Found {len(excel_names)} names in Excel")
-            
-            # Initialize scraper with constructed URL
-            group_url = f"https://chat.zalo.me/?g={self.group_id}"
-            self.progress.emit(f"🌐 Initializing browser for group: {self.group_id}")
-            scraper = ZaloScraper(group_url, headless=False)
+            group_batches = reader.get_group_batches()
+            if not group_batches:
+                raise Exception(
+                    "Không tìm thấy dữ liệu group trong file. "
+                    "File cần có cột Group xe chứa link https://zalo.me/g/..."
+                )
+
+            self.progress.emit(f"✅ Detected {len(group_batches)} groups in input file")
+
+            # Initialize browser once for whole batch
+            first_group_url = group_batches[0]["group_url"]
+            self.progress.emit("🌐 Initializing browser for batch checking...")
+            scraper = ZaloScraper(first_group_url, headless=False)
             scraper.initialize()
-            
-            # Login
+
             self.progress.emit("🔐 Checking saved login session / waiting for manual login...")
             if not scraper.wait_for_login(timeout=300, progress_callback=self.progress.emit):
                 raise Exception("Login failed or timeout. Please try again.")
-            
-            # Navigate and scrape
-            scraper.navigate_to_group(progress_callback=self.progress.emit)
-            
-            # Debug page structure to help identify correct selectors
-            self.progress.emit("🔍 Analyzing page structure...")
-            scraper.debug_page_structure(progress_callback=self.progress.emit)
-            
-            self.progress.emit("👥 Scraping group members (deep scan mode, may take longer)...")
-            group_members = scraper.scrape_members(max_scrolls=160, progress_callback=self.progress.emit)
-            
-            scraper.close()
-            
-            if len(group_members) == 0:
-                raise Exception("No members found in group. Please check the group URL or try different selectors.")
-            
-            # Compare
-            self.progress.emit(f"🔍 Comparing names using {'fuzzy' if self.use_fuzzy else 'exact'} matching...")
+
             comparator = Comparator(threshold=self.threshold)
-            results = comparator.compare(excel_names, group_members, use_fuzzy=self.use_fuzzy)
-            
-            # Save results
-            self.progress.emit("💾 Saving results...")
             output_dir = Path("output")
             output_dir.mkdir(exist_ok=True)
-            safe_group_id = "".join(ch if (ch.isalnum() or ch in ['_', '-']) else '_' for ch in self.group_id)
-            if not safe_group_id:
-                safe_group_id = "unknown"
-            output_file = output_dir / f"missing_members_{safe_group_id}.xlsx"
-            
-            # Prepare metadata
-            metadata = {
-                'Group URL': group_url,
-                'Excel File': self.excel_path,
-                'Total in Excel': results['total_excel'],
-                'Found in Group': results['found_count'],
-                'Missing from Group': results['missing_count'],
-                'Matching Method': results['method'].upper(),
-                'Threshold': f"{results['threshold']*100:.0f}%" if results['method'] == 'fuzzy' else 'N/A'
-            }
-            
-            # Map missing names back to original Excel rows to include phone + name in report
-            missing_records = []
-            missing_name_set = set(results['missing'])
-            for c in contacts:
-                if c['name'] in missing_name_set:
-                    missing_records.append({'phone': c.get('phone', ''), 'name': c['name']})
+            batch_dir = output_dir / f"batch_{Path(self.excel_path).stem}"
+            batch_dir.mkdir(parents=True, exist_ok=True)
 
-            # Build records for "in group but not in Excel"
-            extra_in_group_records = [{'name': name} for name in results.get('extra_in_group', [])]
+            per_group_results = []
+            total_excel = 0
+            total_found = 0
+            total_missing = 0
+            total_extra = 0
 
-            writer = ExcelWriter(str(output_file))
-            writer.write_results(missing_records, metadata, extra_in_group_records)
-            
-            # Emit results with output path
-            results['output_path'] = str(output_file)
-            results['method'] = 'fuzzy' if self.use_fuzzy else 'exact'
-            results['threshold'] = self.threshold
-            self.finished.emit(results)
+            for idx, batch in enumerate(group_batches, start=1):
+                group_id = batch["group_id"]
+                group_url = batch["group_url"]
+                group_label = batch.get("group_label", group_id)
+                contacts = batch["contacts"]
+                excel_names = [c['name'] for c in contacts]
+
+                self.progress.emit("")
+                self.progress.emit(f"🚍 [{idx}/{len(group_batches)}] Group: {group_label} ({group_id})")
+                self.progress.emit(f"📋 Excel names in this group: {len(excel_names)}")
+
+                scraper.group_url = group_url
+                scraper.navigate_to_group(progress_callback=self.progress.emit)
+                self.progress.emit("👥 Scraping group members (deep scan mode)...")
+                group_members = scraper.scrape_members(max_scrolls=160, progress_callback=self.progress.emit)
+                if len(group_members) == 0:
+                    raise Exception(f"Không lấy được thành viên group {group_id}.")
+
+                self.progress.emit(f"🔍 Comparing names using {'fuzzy' if self.use_fuzzy else 'exact'} matching...")
+                results = comparator.compare(excel_names, group_members, use_fuzzy=self.use_fuzzy)
+
+                safe_group_id = "".join(ch if (ch.isalnum() or ch in ['_', '-']) else '_' for ch in group_id) or f"group_{idx}"
+                output_file = batch_dir / f"missing_members_{safe_group_id}.xlsx"
+
+                metadata = {
+                    'Group Label': group_label,
+                    'Group ID': group_id,
+                    'Group URL': group_url,
+                    'Excel File': self.excel_path,
+                    'Total in Excel': results['total_excel'],
+                    'Found in Group': results['found_count'],
+                    'Missing from Group': results['missing_count'],
+                    'Matching Method': results['method'].upper(),
+                    'Threshold': f"{results['threshold']*100:.0f}%" if results['method'] == 'fuzzy' else 'N/A'
+                }
+
+                missing_records = []
+                missing_name_set = set(results['missing'])
+                for c in contacts:
+                    if c['name'] in missing_name_set:
+                        missing_records.append({'phone': c.get('phone', ''), 'name': c['name']})
+
+                extra_in_group_records = [{'name': name} for name in results.get('extra_in_group', [])]
+
+                writer = ExcelWriter(str(output_file))
+                writer.write_results(missing_records, metadata, extra_in_group_records)
+
+                per_group_results.append({
+                    "group_id": group_id,
+                    "group_label": group_label,
+                    "output_path": str(output_file),
+                    "total_excel": results["total_excel"],
+                    "found_count": results["found_count"],
+                    "missing_count": results["missing_count"],
+                    "extra_in_group_count": results.get("extra_in_group_count", 0),
+                })
+                total_excel += results["total_excel"]
+                total_found += results["found_count"]
+                total_missing += results["missing_count"]
+                total_extra += results.get("extra_in_group_count", 0)
+                self.progress.emit(f"💾 Saved: {output_file.name}")
+
+            self.finished.emit({
+                "mode": "batch",
+                "groups_count": len(group_batches),
+                "method": 'fuzzy' if self.use_fuzzy else 'exact',
+                "threshold": self.threshold,
+                "total_excel": total_excel,
+                "found_count": total_found,
+                "missing_count": total_missing,
+                "extra_in_group_count": total_extra,
+                "per_group": per_group_results,
+                "output_path": str(batch_dir),
+            })
             
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            if scraper is not None:
+                try:
+                    scraper.close()
+                except Exception:
+                    pass
 
 
 class MainWindow(QMainWindow):
@@ -210,10 +247,10 @@ class MainWindow(QMainWindow):
         # Initial message
         self.results_display.append("👋 Welcome to Zalo Group Checker!")
         self.results_display.append("\n📝 Instructions:")
-        self.results_display.append("1. Select your Excel file with usernames")
-        self.results_display.append("2. Enter your Zalo group ID")
+        self.results_display.append("1. Select your grouped Excel file")
+        self.results_display.append("2. App will auto-detect all Zalo groups in file")
         self.results_display.append("3. Configure matching settings (optional)")
-        self.results_display.append("4. Click 'Start Checking' to begin")
+        self.results_display.append("4. Click 'Start Checking' to run all groups in order")
         self.results_display.append("\n⚡ Ready to start!")
         
     def apply_modern_theme(self):
@@ -375,16 +412,17 @@ class MainWindow(QMainWindow):
         
     def create_url_section(self):
         """Create Group ID input section"""
-        group = QGroupBox("🌐 Zalo Group ID")
+        group = QGroupBox("🌐 Group Detection Mode")
         layout = QVBoxLayout()
         layout.setSpacing(8)
         
         self.group_id = QLineEdit()
-        self.group_id.setPlaceholderText("Enter group ID (e.g., 123456789)")
+        self.group_id.setPlaceholderText("Auto mode: detect groups from Excel (no manual input needed)")
+        self.group_id.setEnabled(False)
         layout.addWidget(self.group_id)
         
         # Help text - more compact
-        help_text = QLabel("💡 Enter only the group ID number from Zalo")
+        help_text = QLabel("💡 App sẽ tự đọc các link https://zalo.me/g/... trong cột Group xe và chạy lần lượt")
         help_text.setStyleSheet("color: #86868B; font-size: 11px; padding-left: 2px;")
         layout.addWidget(help_text)
         
@@ -523,19 +561,9 @@ class MainWindow(QMainWindow):
         """Start the checking process"""
         # Validate inputs
         excel_path = self.file_path.text()
-        group_id = self.group_id.text().strip()
         
         if not excel_path:
             QMessageBox.warning(self, "Missing Input", "Please select an Excel file.")
-            return
-            
-        if not group_id:
-            QMessageBox.warning(self, "Missing Input", "Please enter a Zalo group ID.")
-            return
-        
-        # Validate group ID is numeric
-        if not group_id.replace("-", "").replace("_", "").isalnum():
-            QMessageBox.warning(self, "Invalid Group ID", "Please enter a valid group ID (numbers and letters only).")
             return
             
         if not Path(excel_path).exists():
@@ -565,7 +593,7 @@ class MainWindow(QMainWindow):
         use_fuzzy = self.fuzzy_check.isChecked()
         threshold = self.threshold_spin.value()
         
-        self.worker = WorkerThread(excel_path, group_id, use_fuzzy, threshold)
+        self.worker = WorkerThread(excel_path, use_fuzzy, threshold)
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.on_finished)
         self.worker.error.connect(self.on_error)
@@ -587,7 +615,7 @@ class MainWindow(QMainWindow):
         # Re-enable controls
         self.start_btn.setEnabled(True)
         self.browse_btn.setEnabled(True)
-        self.group_id.setEnabled(True)
+        self.group_id.setEnabled(False)
         self.fuzzy_check.setEnabled(True)
         self.threshold_spin.setEnabled(self.fuzzy_check.isChecked())
         self.clear_btn.setEnabled(True)
@@ -601,8 +629,8 @@ class MainWindow(QMainWindow):
         self.results_display.append("\n" + "─"*60)
         self.results_display.append("📊 FINAL RESULTS")
         self.results_display.append("─"*60)
+        self.results_display.append(f"🧩 Total groups processed: {results.get('groups_count', 1)}")
         self.results_display.append(f"📋 Total usernames in Excel: {results['total_excel']}")
-        self.results_display.append(f"👥 Total members found in group: {results['total_group']}")
         self.results_display.append(f"🔍 Matching method: {results['method'].upper()}")
         if results['method'] == 'fuzzy':
             self.results_display.append(f"📊 Matching threshold: {results['threshold']*100:.0f}%")
@@ -610,16 +638,16 @@ class MainWindow(QMainWindow):
         self.results_display.append(f"✅ Found in group: {results['found_count']}")
         self.results_display.append(f"❌ NOT in group: {results['missing_count']}")
         self.results_display.append(f"➕ In group but NOT in Excel list: {results.get('extra_in_group_count', 0)}")
-        
-        if results['missing_count'] > 0:
-            self.results_display.append(f"\n📝 Missing members:")
-            for name in results['missing']:
-                self.results_display.append(f"  • {name}")
-        
-        if results.get('extra_in_group_count', 0) > 0:
-            self.results_display.append(f"\n📌 In group but not in Excel list:")
-            for name in results.get('extra_in_group', []):
-                self.results_display.append(f"  • {name}")
+
+        per_group = results.get("per_group", [])
+        if per_group:
+            self.results_display.append("\n🚌 Per-group summary:")
+            for item in per_group:
+                self.results_display.append(
+                    f"  • {item.get('group_label', item['group_id'])}: "
+                    f"missing {item['missing_count']} / {item['total_excel']} "
+                    f"(output: {Path(item['output_path']).name})"
+                )
 
         self.results_display.append(f"\n💾 Results saved to: {results['output_path']}")
         self.results_display.append("\n✅ Process completed successfully!")
@@ -627,7 +655,10 @@ class MainWindow(QMainWindow):
         # Show modern completion dialog
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("✅ Process Complete")
-        msg_box.setText(f"Found {results['missing_count']} missing members")
+        msg_box.setText(
+            f"Processed {results.get('groups_count', 1)} groups, "
+            f"found {results['missing_count']} missing members"
+        )
         msg_box.setInformativeText(f"Results saved to:\n{results['output_path']}")
         msg_box.setIcon(QMessageBox.Icon.Information)
         msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
@@ -641,7 +672,7 @@ class MainWindow(QMainWindow):
         # Re-enable controls
         self.start_btn.setEnabled(True)
         self.browse_btn.setEnabled(True)
-        self.group_id.setEnabled(True)
+        self.group_id.setEnabled(False)
         self.fuzzy_check.setEnabled(True)
         self.threshold_spin.setEnabled(self.fuzzy_check.isChecked())
         self.clear_btn.setEnabled(True)
