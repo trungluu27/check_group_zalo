@@ -434,7 +434,13 @@ class ZaloScraper:
                 "  target: target.id || target.className || 'member-panel'"
                 "};"
             )
-            if not state or not state.get("advanced", False):
+            if (
+                not state
+                or (
+                    not state.get("advanced", False)
+                    and float(state.get("max_remaining", 0) or 0) > 2
+                )
+            ):
                 # Fallback: simulate real user input to trigger virtualized lists.
                 moved = self._user_like_scroll_member_panel(page_down_times=1)
                 if moved and isinstance(state, dict):
@@ -473,7 +479,11 @@ class ZaloScraper:
                 )
                 last_state = state or last_state
 
-                if not last_state.get("advanced", False) and i % 3 == 0:
+                if (
+                    not last_state.get("advanced", False)
+                    and i % 3 == 0
+                    and float(last_state.get("max_remaining", 0) or 0) > 2
+                ):
                     # Throttled fallback: avoid repetitive click/keypress loops near the end.
                     moved = self._user_like_scroll_member_panel(
                         page_down_times=1,
