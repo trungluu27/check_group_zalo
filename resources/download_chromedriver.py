@@ -234,12 +234,16 @@ def download_chromedriver(url: str, platform_key: str) -> Path:
         binary_name = "chromedriver.exe" if "win" in platform_key else "chromedriver"
         target_name = None
         for name in names:
-            if name.endswith(binary_name) and not name.endswith("/"):
+            if name.endswith("/"):
+                continue
+            # Avoid false matches like LICENSE.chromedriver
+            if Path(name).name == binary_name:
                 target_name = name
                 break
 
         if not target_name:
             raise RuntimeError(f"chromedriver binary not found in zip. Contents: {names}")
+        print(f"[INFO] Selected archive entry: {target_name}")
 
         # Extract to OUTPUT_DIR
         with zf.open(target_name) as src:
