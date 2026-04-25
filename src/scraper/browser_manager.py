@@ -33,6 +33,37 @@ def _get_writable_chromedriver_dir() -> Path:
     return target
 
 
+def _looks_like_native_binary(path: Path) -> bool:
+    """
+    Lightweight binary format check to avoid Exec format errors.
+    - macOS: must be Mach-O (thin or universal/fat)
+    - Linux: must be ELF
+    - Windows: must be PE (MZ)
+    """
+    try:
+        with open(path, "rb") as f:
+            magic = f.read(4)
+    except Exception:
+        return False
+
+    system = platform.system()
+    if system == "Darwin":
+        mach_o_magics = {
+            b"\xfe\xed\xfa\xce",  # MH_MAGIC
+            b"\xce\xfa\xed\xfe",  # MH_CIGAM
+            b"\xfe\xed\xfa\xcf",  # MH_MAGIC_64
+            b"\xcf\xfa\xed\xfe",  # MH_CIGAM_64
+            b"\xca\xfe\xba\xbe",  # FAT_MAGIC
+            b"\xbe\xba\xfe\xca",  # FAT_CIGAM
+        }
+        return magic in mach_o_magics
+    if system == "Linux":
+        return magic == b"\x7fELF"
+    if system == "Windows":
+        return magic[:2] == b"MZ"
+    return True
+
+
 def get_bundled_chromedriver_path() -> Optional[str]:
     """
     Return path to the bundled ChromeDriver binary if running as a frozen
@@ -52,12 +83,19 @@ def get_bundled_chromedriver_path() -> Optional[str]:
         driver_path = bundle_dir / 'chromedriver' / 'chromedriver'
 
     if driver_path.exists():
+        if not _looks_like_native_binary(driver_path):
+            # The bundled file is not a native executable for this OS/arch.
+            # Ignore it so caller can use webdriver-manager/PATH fallback.
+            return None
+
         # Never chmod inside the signed/translocated .app bundle.
         # Copy to a writable runtime location, then ensure +x there.
         runtime_dir = _get_writable_chromedriver_dir()
         runtime_driver = runtime_dir / driver_path.name
         try:
             shutil.copy2(driver_path, runtime_driver)
+            if not _looks_like_native_binary(runtime_driver):
+                return None
             if system != 'Windows':
                 runtime_driver.chmod(0o755)
             return str(runtime_driver)

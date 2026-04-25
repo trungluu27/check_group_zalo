@@ -130,6 +130,34 @@ def fetch_json(url: str) -> dict:
         return json.loads(resp.read().decode())
 
 
+def is_expected_binary_format(binary_path: Path, platform_key: str) -> bool:
+    """
+    Validate downloaded chromedriver header for target platform.
+    Prevents bundling HTML/error files or wrong-OS executables.
+    """
+    try:
+        with open(binary_path, "rb") as f:
+            magic = f.read(4)
+    except Exception:
+        return False
+
+    if platform_key.startswith("mac"):
+        mach_o_magics = {
+            b"\xfe\xed\xfa\xce",
+            b"\xce\xfa\xed\xfe",
+            b"\xfe\xed\xfa\xcf",
+            b"\xcf\xfa\xed\xfe",
+            b"\xca\xfe\xba\xbe",
+            b"\xbe\xba\xfe\xca",
+        }
+        return magic in mach_o_magics
+    if platform_key.startswith("linux"):
+        return magic == b"\x7fELF"
+    if platform_key.startswith("win"):
+        return magic[:2] == b"MZ"
+    return True
+
+
 def find_chromedriver_url(major_version: int, platform_key: str) -> str:
     # Use latest stable if no version detected
     if major_version is None:
@@ -173,6 +201,8 @@ def find_chromedriver_url(major_version: int, platform_key: str) -> str:
 
 def download_chromedriver(url: str, platform_key: str) -> Path:
     zip_path = OUTPUT_DIR / "chromedriver_download.zip"
+    if OUTPUT_DIR.exists():
+        shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print(f"[INFO] Downloading ChromeDriver from: {url}")
@@ -207,6 +237,12 @@ def download_chromedriver(url: str, platform_key: str) -> Path:
     if platform_key != "win64" and platform_key != "win32":
         dest = OUTPUT_DIR / "chromedriver"
         dest.chmod(0o755)
+
+    dest = OUTPUT_DIR / binary_name
+    if not is_expected_binary_format(dest, platform_key):
+        raise RuntimeError(
+            f"Downloaded chromedriver has unexpected binary format for {platform_key}: {dest}"
+        )
 
     return OUTPUT_DIR
 
