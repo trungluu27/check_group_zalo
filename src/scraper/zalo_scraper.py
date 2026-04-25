@@ -438,7 +438,13 @@ class ZaloScraper:
                 "  target: target.id || target.className || 'member-panel'"
                 "};"
             )
-            if not state or not state.get("advanced", False):
+            if (
+                not state
+                or (
+                    not state.get("advanced", False)
+                    and float(state.get("max_remaining", 0) or 0) > 4
+                )
+            ):
                 # Fallback: simulate real user input to trigger virtualized lists.
                 moved = self._user_like_scroll_member_panel(page_down_times=1)
                 if moved and isinstance(state, dict):
@@ -481,7 +487,11 @@ class ZaloScraper:
                 )
                 last_state = state or last_state
 
-                if not last_state.get("advanced", False) and i % 3 == 0:
+                if (
+                    not last_state.get("advanced", False)
+                    and i % 3 == 0
+                    and float(last_state.get("max_remaining", 0) or 0) > 4
+                ):
                     # Throttled fallback: avoid repetitive click/keypress loops near the end.
                     moved = self._user_like_scroll_member_panel(
                         page_down_times=1,
@@ -514,15 +524,17 @@ class ZaloScraper:
 
     def _focus_member_panel(self, force_click: bool = False):
         # Focus the member panel so keyboard scrolling affects correct container.
-        # Throttle click-to-focus to avoid repeatedly clicking the same member near list end.
+        # Avoid physical clicks (can select a member row and waste time near list end).
         try:
             panel = self.driver.find_element(By.CSS_SELECTOR, "div[id='member-group']")
             now = time.time()
-            should_click = force_click or (now - self._last_panel_focus_at > 1.5)
-
-            if should_click:
-                self.driver.execute_script("arguments[0].setAttribute('tabindex','-1');", panel)
-                ActionChains(self.driver).move_to_element(panel).click(panel).perform()
+            should_focus = force_click or (now - self._last_panel_focus_at > 1.5)
+            if should_focus:
+                self.driver.execute_script(
+                    "arguments[0].setAttribute('tabindex','-1');"
+                    "arguments[0].focus({preventScroll:true});",
+                    panel
+                )
                 self._last_panel_focus_at = now
             return panel
         except Exception:
@@ -542,9 +554,9 @@ class ZaloScraper:
 
             actions = ActionChains(self.driver)
             for _ in range(max(1, page_down_times)):
-                actions.send_keys(Keys.PAGE_DOWN)
+                actions.send_keys_to_element(panel, Keys.PAGE_DOWN)
             if press_end:
-                actions.send_keys(Keys.END)
+                actions.send_keys_to_element(panel, Keys.END)
             actions.perform()
 
             time.sleep(0.45)
