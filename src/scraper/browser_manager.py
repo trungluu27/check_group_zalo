@@ -13,6 +13,26 @@ import shutil
 from pathlib import Path
 
 
+def _get_writable_chromedriver_dir() -> Path:
+    """
+    Return an OS-specific writable directory for a runtime ChromeDriver copy.
+    Needed on macOS because App Translocation makes .app bundle paths read-only.
+    """
+    system = platform.system()
+    app_name = "ZaloGroupChecker"
+
+    if system == 'Windows':
+        base = Path.home() / 'AppData' / 'Local' / app_name
+    elif system == 'Darwin':
+        base = Path.home() / 'Library' / 'Application Support' / app_name
+    else:
+        base = Path.home() / '.config' / app_name.lower()
+
+    target = base / "runtime" / "chromedriver"
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 def get_bundled_chromedriver_path() -> Optional[str]:
     """
     Return path to the bundled ChromeDriver binary if running as a frozen
@@ -32,10 +52,19 @@ def get_bundled_chromedriver_path() -> Optional[str]:
         driver_path = bundle_dir / 'chromedriver' / 'chromedriver'
 
     if driver_path.exists():
-        # Ensure executable bit is set on Unix
-        if system != 'Windows':
-            driver_path.chmod(0o755)
-        return str(driver_path)
+        # Never chmod inside the signed/translocated .app bundle.
+        # Copy to a writable runtime location, then ensure +x there.
+        runtime_dir = _get_writable_chromedriver_dir()
+        runtime_driver = runtime_dir / driver_path.name
+        try:
+            shutil.copy2(driver_path, runtime_driver)
+            if system != 'Windows':
+                runtime_driver.chmod(0o755)
+            return str(runtime_driver)
+        except Exception:
+            # Fallback to bundled path if copy unexpectedly fails.
+            # This preserves previous behavior for non-translocated contexts.
+            return str(driver_path)
 
     return None
 
