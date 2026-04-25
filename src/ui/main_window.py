@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLineEdit, QTextEdit, QLabel,
                              QProgressBar, QFileDialog, QMessageBox, QCheckBox,
-                             QGroupBox, QSpinBox, QDoubleSpinBox, QFrame)
+                             QGroupBox, QFrame)
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QUrl
 from PyQt6.QtGui import QFont, QPalette, QColor, QIcon, QDesktopServices
 import sys
@@ -345,46 +345,6 @@ class MainWindow(QMainWindow):
                 content: "✓";
                 color: white;
             }
-            QAbstractSpinBox, QSpinBox, QDoubleSpinBox {
-                border: 1px solid #D1D1D6;
-                border-radius: 6px;
-                padding: 6px 10px;
-                background-color: #FFFFFF;
-                font-size: 13px;
-                color: #1D1D1F;
-                selection-background-color: #007AFF;
-                selection-color: #FFFFFF;
-                min-width: 80px;
-            }
-            QAbstractSpinBox::up-button, QSpinBox::up-button, QDoubleSpinBox::up-button,
-            QAbstractSpinBox::down-button, QSpinBox::down-button, QDoubleSpinBox::down-button {
-                subcontrol-origin: border;
-                border: none;
-                background-color: transparent;
-                width: 20px;
-            }
-            QAbstractSpinBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {
-                background-color: #F5F5F7;
-                color: #86868B;
-            }
-            QAbstractSpinBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
-                border: 2px solid #007AFF;
-            }
-            QSpinBox QLineEdit, QDoubleSpinBox QLineEdit, QAbstractSpinBox QLineEdit {
-                color: #1D1D1F;
-                background: transparent;
-                border: none;
-                selection-background-color: #007AFF;
-                selection-color: #FFFFFF;
-            }
-            QSpinBox::up-button, QDoubleSpinBox::up-button,
-            QSpinBox::down-button, QDoubleSpinBox::down-button {
-                color: #1D1D1F;
-            }
-            QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
-            QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
-                background-color: #F5F5F7;
-            }
         """)
         
     def create_header(self):
@@ -480,13 +440,16 @@ class MainWindow(QMainWindow):
         threshold_label.setStyleSheet("font-size: 12px; color: #1D1D1F;")
         threshold_layout.addWidget(threshold_label)
         
-        self.threshold_spin = QDoubleSpinBox()
-        self.threshold_spin.setRange(0.5, 1.0)
-        self.threshold_spin.setSingleStep(0.05)
-        self.threshold_spin.setValue(0.85)
-        self.threshold_spin.setSuffix(" (85%)")
-        self.threshold_spin.valueChanged.connect(self.update_threshold_label)
-        threshold_layout.addWidget(self.threshold_spin)
+        self.threshold_input = QLineEdit()
+        self.threshold_input.setText("0.85")
+        self.threshold_input.setPlaceholderText("0.85")
+        self.threshold_input.setFixedWidth(110)
+        self.threshold_input.setToolTip("Nhập ngưỡng từ 0.5 đến 1.0")
+        threshold_layout.addWidget(self.threshold_input)
+
+        threshold_hint = QLabel("(0.5 - 1.0)")
+        threshold_hint.setStyleSheet("font-size: 11px; color: #86868B;")
+        threshold_layout.addWidget(threshold_hint)
         
         threshold_layout.addStretch()
         
@@ -501,12 +464,16 @@ class MainWindow(QMainWindow):
         batch_label.setStyleSheet("font-size: 12px; color: #1D1D1F;")
         batch_layout.addWidget(batch_label)
 
-        self.max_groups_spin = QSpinBox()
-        self.max_groups_spin.setRange(0, 999)
-        self.max_groups_spin.setValue(0)
-        self.max_groups_spin.setSpecialValueText("All")
-        self.max_groups_spin.setToolTip("0 = chạy toàn bộ group trong file")
-        batch_layout.addWidget(self.max_groups_spin)
+        self.max_groups_input = QLineEdit()
+        self.max_groups_input.setText("0")
+        self.max_groups_input.setPlaceholderText("0")
+        self.max_groups_input.setFixedWidth(110)
+        self.max_groups_input.setToolTip("0 = chạy toàn bộ group trong file")
+        batch_layout.addWidget(self.max_groups_input)
+
+        batch_hint = QLabel("(0 = All)")
+        batch_hint.setStyleSheet("font-size: 11px; color: #86868B;")
+        batch_layout.addWidget(batch_hint)
 
         batch_layout.addStretch()
         layout.addLayout(batch_layout)
@@ -586,13 +553,9 @@ class MainWindow(QMainWindow):
         
         return widget
         
-    def update_threshold_label(self, value):
-        """Update threshold suffix to show percentage"""
-        self.threshold_spin.setSuffix(f" ({int(value*100)}%)")
-        
     def toggle_threshold(self, state):
         """Enable/disable threshold control based on fuzzy matching"""
-        self.threshold_spin.setEnabled(state == Qt.CheckState.Checked.value)
+        self.threshold_input.setEnabled(state == Qt.CheckState.Checked.value)
         
     def browse_file(self):
         """Open file browser to select Excel file"""
@@ -625,8 +588,8 @@ class MainWindow(QMainWindow):
         self.browse_btn.setEnabled(False)
         self.group_id.setEnabled(False)
         self.fuzzy_check.setEnabled(False)
-        self.threshold_spin.setEnabled(False)
-        self.max_groups_spin.setEnabled(False)
+        self.threshold_input.setEnabled(False)
+        self.max_groups_input.setEnabled(False)
         self.clear_btn.setEnabled(False)
         
         # Reset output actions for new run
@@ -642,9 +605,50 @@ class MainWindow(QMainWindow):
         
         # Create and start worker thread
         use_fuzzy = self.fuzzy_check.isChecked()
-        threshold = self.threshold_spin.value()
-        
-        max_groups = self.max_groups_spin.value()
+        threshold_text = self.threshold_input.text().strip()
+        try:
+            threshold = float(threshold_text)
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Threshold", "Similarity phải là số từ 0.5 đến 1.0 (ví dụ 0.85).")
+            self.start_btn.setEnabled(True)
+            self.browse_btn.setEnabled(True)
+            self.fuzzy_check.setEnabled(True)
+            self.threshold_input.setEnabled(self.fuzzy_check.isChecked())
+            self.max_groups_input.setEnabled(True)
+            self.clear_btn.setEnabled(True)
+            return
+        if threshold < 0.5 or threshold > 1.0:
+            QMessageBox.warning(self, "Invalid Threshold", "Similarity phải nằm trong khoảng 0.5 đến 1.0.")
+            self.start_btn.setEnabled(True)
+            self.browse_btn.setEnabled(True)
+            self.fuzzy_check.setEnabled(True)
+            self.threshold_input.setEnabled(self.fuzzy_check.isChecked())
+            self.max_groups_input.setEnabled(True)
+            self.clear_btn.setEnabled(True)
+            return
+
+        max_groups_text = self.max_groups_input.text().strip() or "0"
+        try:
+            max_groups = int(max_groups_text)
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Groups Value", "Groups to check phải là số nguyên >= 0.")
+            self.start_btn.setEnabled(True)
+            self.browse_btn.setEnabled(True)
+            self.fuzzy_check.setEnabled(True)
+            self.threshold_input.setEnabled(self.fuzzy_check.isChecked())
+            self.max_groups_input.setEnabled(True)
+            self.clear_btn.setEnabled(True)
+            return
+        if max_groups < 0:
+            QMessageBox.warning(self, "Invalid Groups Value", "Groups to check không được âm.")
+            self.start_btn.setEnabled(True)
+            self.browse_btn.setEnabled(True)
+            self.fuzzy_check.setEnabled(True)
+            self.threshold_input.setEnabled(self.fuzzy_check.isChecked())
+            self.max_groups_input.setEnabled(True)
+            self.clear_btn.setEnabled(True)
+            return
+
         self.worker = WorkerThread(excel_path, use_fuzzy, threshold, max_groups=max_groups)
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.on_finished)
@@ -669,8 +673,8 @@ class MainWindow(QMainWindow):
         self.browse_btn.setEnabled(True)
         self.group_id.setEnabled(False)
         self.fuzzy_check.setEnabled(True)
-        self.threshold_spin.setEnabled(self.fuzzy_check.isChecked())
-        self.max_groups_spin.setEnabled(True)
+        self.threshold_input.setEnabled(self.fuzzy_check.isChecked())
+        self.max_groups_input.setEnabled(True)
         self.clear_btn.setEnabled(True)
 
         # Enable output actions
@@ -729,8 +733,8 @@ class MainWindow(QMainWindow):
         self.browse_btn.setEnabled(True)
         self.group_id.setEnabled(False)
         self.fuzzy_check.setEnabled(True)
-        self.threshold_spin.setEnabled(self.fuzzy_check.isChecked())
-        self.max_groups_spin.setEnabled(True)
+        self.threshold_input.setEnabled(self.fuzzy_check.isChecked())
+        self.max_groups_input.setEnabled(True)
         self.clear_btn.setEnabled(True)
 
         # Keep output actions enabled only if last output exists
