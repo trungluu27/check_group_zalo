@@ -3,6 +3,15 @@ import os
 import traceback
 from pathlib import Path
 
+# Limit BLAS/OpenMP thread fan-out to avoid macOS ARM stack-guard
+# crashes in worker threads (OpenBLAS dgetrf_parallel / dgesv paths).
+# setdefault keeps user-provided values untouched.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+
 
 def _get_writable_dir() -> Path:
     """
