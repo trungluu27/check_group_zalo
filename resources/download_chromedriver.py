@@ -19,6 +19,7 @@ import zipfile
 import shutil
 import urllib.request
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -142,6 +143,21 @@ def is_expected_binary_format(binary_path: Path, platform_key: str) -> bool:
         return False
 
     if platform_key.startswith("mac"):
+        # Prefer system `file` output on macOS to avoid false negatives with
+        # newer universal/fat variants.
+        try:
+            result = subprocess.run(
+                ["file", str(binary_path)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            file_out = (result.stdout or "") + (result.stderr or "")
+            if "Mach-O" in file_out:
+                return True
+        except Exception:
+            pass
+
         mach_o_magics = {
             b"\xfe\xed\xfa\xce",
             b"\xce\xfa\xed\xfe",
@@ -149,6 +165,8 @@ def is_expected_binary_format(binary_path: Path, platform_key: str) -> bool:
             b"\xcf\xfa\xed\xfe",
             b"\xca\xfe\xba\xbe",
             b"\xbe\xba\xfe\xca",
+            b"\xca\xfe\xba\xbf",
+            b"\xbf\xba\xfe\xca",
         }
         return magic in mach_o_magics
     if platform_key.startswith("linux"):

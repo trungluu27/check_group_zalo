@@ -10,6 +10,7 @@ import time
 import sys
 import platform
 import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -48,6 +49,19 @@ def _looks_like_native_binary(path: Path) -> bool:
 
     system = platform.system()
     if system == "Darwin":
+        try:
+            result = subprocess.run(
+                ["file", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            file_out = (result.stdout or "") + (result.stderr or "")
+            if "Mach-O" in file_out:
+                return True
+        except Exception:
+            pass
+
         mach_o_magics = {
             b"\xfe\xed\xfa\xce",  # MH_MAGIC
             b"\xce\xfa\xed\xfe",  # MH_CIGAM
@@ -55,6 +69,8 @@ def _looks_like_native_binary(path: Path) -> bool:
             b"\xcf\xfa\xed\xfe",  # MH_CIGAM_64
             b"\xca\xfe\xba\xbe",  # FAT_MAGIC
             b"\xbe\xba\xfe\xca",  # FAT_CIGAM
+            b"\xca\xfe\xba\xbf",  # FAT_MAGIC_64
+            b"\xbf\xba\xfe\xca",  # FAT_CIGAM_64
         }
         return magic in mach_o_magics
     if system == "Linux":
