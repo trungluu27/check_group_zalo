@@ -444,6 +444,7 @@ class MainWindow(QMainWindow):
         self.threshold_input.setText("0.85")
         self.threshold_input.setPlaceholderText("0.85")
         self.threshold_input.setFixedWidth(110)
+        self.threshold_input.setFixedHeight(34)
         self.threshold_input.setToolTip("Nhập ngưỡng từ 0.5 đến 1.0")
         threshold_layout.addWidget(self.threshold_input)
 
@@ -468,6 +469,7 @@ class MainWindow(QMainWindow):
         self.max_groups_input.setText("0")
         self.max_groups_input.setPlaceholderText("0")
         self.max_groups_input.setFixedWidth(110)
+        self.max_groups_input.setFixedHeight(34)
         self.max_groups_input.setToolTip("0 = chạy toàn bộ group trong file")
         batch_layout.addWidget(self.max_groups_input)
 
