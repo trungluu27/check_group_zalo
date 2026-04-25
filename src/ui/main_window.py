@@ -351,10 +351,21 @@ class MainWindow(QMainWindow):
                 padding: 6px 10px;
                 background-color: #FFFFFF;
                 font-size: 13px;
+                color: #1D1D1F;
+                selection-background-color: #007AFF;
+                selection-color: #FFFFFF;
                 min-width: 80px;
+            }
+            QSpinBox:disabled, QDoubleSpinBox:disabled {
+                background-color: #F5F5F7;
+                color: #86868B;
             }
             QSpinBox:focus, QDoubleSpinBox:focus {
                 border: 2px solid #007AFF;
+            }
+            QSpinBox::up-button, QDoubleSpinBox::up-button,
+            QSpinBox::down-button, QDoubleSpinBox::down-button {
+                subcontrol-origin: border;
             }
             QSpinBox::up-button, QDoubleSpinBox::up-button,
             QSpinBox::down-button, QDoubleSpinBox::down-button {
@@ -457,7 +468,7 @@ class MainWindow(QMainWindow):
         threshold_layout.setSpacing(8)
         
         threshold_label = QLabel("Similarity:")
-        threshold_label.setStyleSheet("font-size: 12px; color: #1D1D1F;")
+        threshold_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #1D1D1F;")
         threshold_layout.addWidget(threshold_label)
         
         self.threshold_spin = QDoubleSpinBox()
@@ -477,7 +488,7 @@ class MainWindow(QMainWindow):
         batch_layout.setSpacing(8)
 
         batch_label = QLabel("Groups to check:")
-        batch_label.setStyleSheet("font-size: 12px; color: #1D1D1F;")
+        batch_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #1D1D1F;")
         batch_layout.addWidget(batch_label)
 
         self.max_groups_spin = QSpinBox()
