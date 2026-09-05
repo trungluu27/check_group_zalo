@@ -163,6 +163,7 @@ def main():
     # ------------------------------------------------------------------
     try:
         from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtGui import QIcon
         from ui.main_window import MainWindow
     except Exception as e:
         logger.exception("Failed to import Qt / UI modules")
@@ -171,6 +172,16 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName("Zalo Group Membership Checker")
+
+    # Window icon (title bar, Alt-Tab, taskbar). The .exe's own icon is set
+    # separately by PyInstaller — this one is what Qt draws at runtime.
+    # Setting it on the QApplication means dialogs inherit it too.
+    icon_file = get_resource_dir() / "resources" / "icon.ico"
+    if icon_file.exists():
+        app.setWindowIcon(QIcon(str(icon_file)))
+        logger.info(f"Window icon loaded: {icon_file}")
+    else:
+        logger.warning(f"Window icon not found: {icon_file}")
 
     window = MainWindow()
     window.show()

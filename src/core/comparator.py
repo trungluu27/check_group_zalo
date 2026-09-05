@@ -1,6 +1,42 @@
 from typing import List, Set, Tuple, Dict
 from fuzzywuzzy import fuzz
 import re
+import unicodedata
+
+# The five Vietnamese tone marks as combining characters (i.e. after NFD).
+# Letter-shaping marks are deliberately NOT here — breve (ă), circumflex
+# (â/ê/ô) and horn (ơ/ư) belong to the letter itself, not to the tone, so
+# moving them would merge genuinely different letters.
+_TONE_MARKS = frozenset(
+    '̀'  # huyền
+    '́'  # sắc
+    '̃'  # ngã
+    '̉'  # hỏi
+    '̣'  # nặng
+)
+
+
+def fold_tone_marks(text: str) -> str:
+    """
+    Make Vietnamese tone-mark placement irrelevant when comparing names.
+
+    Vietnamese has two equally valid conventions for where the tone mark sits
+    inside a syllable — "Thùy" (mark on u) vs "Thuỳ" (mark on y), "hòa" vs
+    "hoà". Zalo display names come from whatever the user's keyboard produced,
+    so both spellings turn up for the same person. As Unicode they are
+    different strings (ù = U+00F9, ỳ = U+1EF3), which scores only 84% on
+    fuzzy matching and falls under the default 0.85 threshold.
+
+    Within each syllable, keep the base letters in their original order and
+    move any tone mark to the end. Both spellings collapse to one canonical
+    form. Because letter order is preserved, "an" and "na" stay distinct.
+    """
+    folded = []
+    for syllable in unicodedata.normalize('NFD', text).split(' '):
+        base = ''.join(ch for ch in syllable if ch not in _TONE_MARKS)
+        tones = ''.join(sorted(ch for ch in syllable if ch in _TONE_MARKS))
+        folded.append(base + tones)
+    return unicodedata.normalize('NFC', ' '.join(folded))
 
 
 class Comparator:
@@ -30,7 +66,7 @@ class Comparator:
         name = re.sub(r'\s+', ' ', name).strip()
         if not self.case_sensitive:
             name = name.lower()
-        return name
+        return fold_tone_marks(name)
 
     def exact_match(self, excel_names: List[str], group_members: Set[str]) -> Tuple[List[str], List[str], Set[str]]:
         """
@@ -85,10 +121,21 @@ class Comparator:
             for group_name in group_members:
                 normalized_group = self.normalize_name(group_name)
 
+                # force_ascii=False is essential for Vietnamese names.
+                # fuzzywuzzy's default (True) runs the inputs through an
+                # ASCII-folder that only understands Latin-1, so it DELETES
+                # 'ù' but keeps 'ủ' — "Thùy" and "Thúy" both become "thy"
+                # and score 100, while "Thủy" vs "Thụy" correctly scores 75.
+                # That inconsistency reports people as present in a group
+                # when they are not.
                 ratio = fuzz.ratio(normalized_excel, normalized_group)
                 partial = fuzz.partial_ratio(normalized_excel, normalized_group)
-                token_sort = fuzz.token_sort_ratio(normalized_excel, normalized_group)
-                token_set = fuzz.token_set_ratio(normalized_excel, normalized_group)
+                token_sort = fuzz.token_sort_ratio(
+                    normalized_excel, normalized_group, force_ascii=False
+                )
+                token_set = fuzz.token_set_ratio(
+                    normalized_excel, normalized_group, force_ascii=False
+                )
                 score = max(ratio, partial, token_sort, token_set)
 
                 if score > best_match_score:
