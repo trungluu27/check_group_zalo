@@ -6,6 +6,10 @@ on:
       - 'v*'           # Trigger on version tags: v1.0.0, v1.2.3, etc.
   workflow_dispatch:   # Allow manual trigger from GitHub Actions UI
 
+# GITHUB_TOKEN is read-only by default; creating the Release needs write.
+permissions:
+  contents: write
+
 jobs:
   build-macos:
     name: Build macOS .app (${{ matrix.arch }})
@@ -14,7 +18,7 @@ jobs:
       fail-fast: false   # an Intel-runner problem must not cancel the arm64 build
       matrix:
         include:
-          - runner: macos-14          # Apple Silicon (M1/M2/M3/M4)
+          - runner: macos-15          # Apple Silicon (M1/M2/M3/M4); macos-14 is retired
             arch: arm64
           - runner: macos-15-intel    # Intel Macs
             arch: x86_64
