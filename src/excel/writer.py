@@ -64,6 +64,14 @@ class ExcelWriter:
         metadata['Total Missing'] = len(missing_users)
         metadata['Total In Group Not In Excel'] = len(extra_in_group or [])
 
+        # Checked before the try block on purpose: an unsupported format is a
+        # caller mistake and keeps its own type, while the try block below is
+        # only there to describe genuine write failures (locked file, full
+        # disk). The old code raised this ValueError inside the try and then
+        # caught its own exception, flattening both cases into Exception.
+        if self.format not in ('xlsx', 'csv'):
+            raise ValueError(f"Unsupported format: {self.format}")
+
         try:
             if self.format == 'xlsx':
                 with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
@@ -74,11 +82,9 @@ class ExcelWriter:
                     metadata_df = pd.DataFrame(metadata_items)
                     metadata_df.to_excel(writer, sheet_name='Metadata', index=False)
 
-            elif self.format == 'csv':
+            else:
                 # For CSV, write primary report only (missing members)
                 missing_df.to_csv(self.output_path, index=False)
-            else:
-                raise ValueError(f"Unsupported format: {self.format}")
 
             return True
 

@@ -19,15 +19,23 @@ class ExcelReader:
 
     def read_file(self) -> pd.DataFrame:
         """
-        Read Excel file and return DataFrame
+        Read Excel file and return DataFrame.
+
+        Raises:
+            ValueError: the extension is not a spreadsheet format we support.
+            Exception: the file is a spreadsheet but could not be parsed.
         """
+        # Checked before the try block on purpose. Picking the wrong kind of
+        # file is a different failure from a corrupt spreadsheet, and the old
+        # code flattened both into a bare Exception — which also swallowed the
+        # ValueError it had just raised itself.
+        engines = {'.xlsx': 'openpyxl', '.xls': 'xlrd'}
+        engine = engines.get(self.file_path.suffix.lower())
+        if engine is None:
+            raise ValueError(f"Unsupported file format: {self.file_path.suffix}")
+
         try:
-            if self.file_path.suffix == '.xlsx':
-                return pd.read_excel(self.file_path, engine='openpyxl')
-            elif self.file_path.suffix == '.xls':
-                return pd.read_excel(self.file_path, engine='xlrd')
-            else:
-                raise ValueError(f"Unsupported file format: {self.file_path.suffix}")
+            return pd.read_excel(self.file_path, engine=engine)
         except Exception as e:
             raise Exception(f"Error reading Excel file: {str(e)}")
 

@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QUrl
 from PyQt6.QtGui import QFont, QPalette, QColor, QIcon, QDesktopServices
 import sys
+import time
 from pathlib import Path
 
 
@@ -77,6 +78,7 @@ class WorkerThread(QThread):
             batch_dir.mkdir(parents=True, exist_ok=True)
 
             per_group_results = []
+            failed_groups = []
             total_excel = 0
             total_found = 0
             total_missing = 0
@@ -93,12 +95,25 @@ class WorkerThread(QThread):
                 self.progress.emit(f"🚍 [{idx}/{len(group_batches)}] Group: {group_label} ({group_id})")
                 self.progress.emit(f"📋 Excel names in this group: {len(excel_names)}")
 
-                scraper.group_url = group_url
-                scraper.navigate_to_group(progress_callback=self.progress.emit)
-                self.progress.emit("👥 Scraping group members (deep scan mode)...")
-                group_members = scraper.scrape_members(max_scrolls=160, progress_callback=self.progress.emit)
-                if len(group_members) == 0:
-                    raise Exception(f"Không lấy được thành viên group {group_id}.")
+                try:
+                    scraper.group_url = group_url
+                    scraper.navigate_to_group(progress_callback=self.progress.emit)
+                    self.progress.emit("👥 Scraping group members (deep scan mode)...")
+                    group_members = scraper.scrape_members(max_scrolls=160, progress_callback=self.progress.emit)
+                    if len(group_members) == 0:
+                        raise Exception("Không lấy được danh sách thành viên")
+                except Exception as group_error:
+                    # One bad group must not abort the remaining groups: the
+                    # user would lose every group after it and have to rerun
+                    # the whole file.
+                    reason = str(group_error)
+                    failed_groups.append({
+                        "group_id": group_id,
+                        "group_label": group_label,
+                        "reason": reason,
+                    })
+                    self.progress.emit(f"❌ Bỏ qua group {group_label} ({group_id}): {reason}")
+                    continue
 
                 self.progress.emit(f"🔍 Comparing names using {'fuzzy' if self.use_fuzzy else 'exact'} matching...")
                 results = comparator.compare(excel_names, group_members, use_fuzzy=self.use_fuzzy)
@@ -144,6 +159,18 @@ class WorkerThread(QThread):
                 total_extra += results.get("extra_in_group_count", 0)
                 self.progress.emit(f"💾 Saved: {output_file.name}")
 
+                # Small pause between groups: Zalo gets slower the more groups
+                # are loaded back to back, and a hammered session is what makes
+                # the sidebar render late.
+                if idx < len(group_batches):
+                    time.sleep(2)
+
+            if failed_groups:
+                self.progress.emit("")
+                self.progress.emit(f"⚠ {len(failed_groups)} group không lấy được thành viên:")
+                for f in failed_groups:
+                    self.progress.emit(f"   • {f['group_label']} ({f['group_id']}): {f['reason']}")
+
             self.finished.emit({
                 "mode": "batch",
                 "groups_count": len(group_batches),
@@ -155,6 +182,7 @@ class WorkerThread(QThread):
                 "missing_count": total_missing,
                 "extra_in_group_count": total_extra,
                 "per_group": per_group_results,
+                "failed_groups": failed_groups,
                 "output_path": str(batch_dir),
             })
             
@@ -679,8 +707,23 @@ class MainWindow(QMainWindow):
                     f"(output: {Path(item['output_path']).name})"
                 )
 
+        failed_groups = results.get("failed_groups", [])
+        if failed_groups:
+            self.results_display.append(
+                f"\n⚠ {len(failed_groups)} group không lấy được thành viên "
+                "(đã bỏ qua, các group khác vẫn chạy):"
+            )
+            for item in failed_groups:
+                self.results_display.append(
+                    f"  • {item.get('group_label', item['group_id'])} "
+                    f"({item['group_id']}): {item['reason']}"
+                )
+
         self.results_display.append(f"\n💾 Results saved to: {results['output_path']}")
-        self.results_display.append("\n✅ Process completed successfully!")
+        if failed_groups:
+            self.results_display.append("\n✅ Đã xong — có group bị bỏ qua, xem danh sách ở trên.")
+        else:
+            self.results_display.append("\n✅ Process completed successfully!")
         
         # Show modern completion dialog
         msg_box = QMessageBox(self)
@@ -689,8 +732,16 @@ class MainWindow(QMainWindow):
             f"Processed {results.get('groups_count', 1)} groups, "
             f"found {results['missing_count']} missing members"
         )
-        msg_box.setInformativeText(f"Results saved to:\n{results['output_path']}")
-        msg_box.setIcon(QMessageBox.Icon.Information)
+        informative = f"Results saved to:\n{results['output_path']}"
+        if failed_groups:
+            informative += (
+                f"\n\n⚠ {len(failed_groups)} group không lấy được thành viên. "
+                "Xem danh sách chi tiết trong khung kết quả."
+            )
+        msg_box.setInformativeText(informative)
+        msg_box.setIcon(
+            QMessageBox.Icon.Warning if failed_groups else QMessageBox.Icon.Information
+        )
         msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
         msg_box.exec()
         

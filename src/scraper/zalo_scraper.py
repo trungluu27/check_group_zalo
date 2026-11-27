@@ -2,7 +2,8 @@ from scraper.browser_manager import BrowserManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.webdriver.support.ui import WebDriverWait
 from typing import Set
 import time
 import re
@@ -10,6 +11,17 @@ import re
 
 class ZaloScraper:
     # Scrape Zalo group members using Selenium WebDriver
+
+    # How many times to retry the "open group info -> open member list" pair.
+    OPEN_PANEL_ATTEMPTS = 3
+
+    # Structural shortcut for the members entry. Correct for the common
+    # sidebar layout, wrong for a group owner (an extra management block
+    # shifts nth-child by one), so every click through it is verified and a
+    # text-based lookup takes over when it misses.
+    MEMBER_BUTTON_SELECTOR = (
+        "aside div[id='sideBodyScrollBox'] >div >div>div>div>div:nth-child(2)>div:last-child"
+    )
 
     def __init__(self, group_url: str, headless: bool = False):
         self.group_url = group_url
@@ -79,88 +91,241 @@ class ZaloScraper:
             progress_callback(f"Navigating to group: {self.group_url}")
 
         self.driver.get(self.group_url)
-        time.sleep(3)
+        self._wait_for_chat_ready(progress_callback)
 
         if progress_callback:
             progress_callback("Arrived at group page")
 
-        self._click_group_info_button(progress_callback)
-        self._click_view_members_button(progress_callback)
-        time.sleep(2)
-
-        if not self._is_member_list_open():
-            if progress_callback:
-                progress_callback("Member list not detected yet. Retrying: group info -> view members...")
+        for attempt in range(1, self.OPEN_PANEL_ATTEMPTS + 1):
             self._click_group_info_button(progress_callback)
-            self._click_view_members_button(progress_callback)
-            if not self._is_member_list_open():
-                # Extra fallback for unstable DOM: click by text directly.
-                self._try_click_members_by_xpath(progress_callback=progress_callback)
-            time.sleep(2)
+
+            if self._open_member_list(progress_callback):
+                if progress_callback:
+                    progress_callback("✓ Member list is open and ready")
+                return
+
+            if attempt < self.OPEN_PANEL_ATTEMPTS:
+                if progress_callback:
+                    progress_callback(
+                        f"⚠ Member list not open (lần {attempt}/{self.OPEN_PANEL_ATTEMPTS}) — thử lại..."
+                    )
+                time.sleep(1.5)
 
         if progress_callback:
-            if self._is_member_list_open():
-                progress_callback("✓ Member list is open and ready")
-            else:
-                progress_callback("⚠ Member list still not detected after retry")
+            progress_callback("⚠ Member list still not detected after retries")
+
+    def _wait_for_chat_ready(self, progress_callback=None, timeout: float = 20.0):
+        """
+        Wait for the chat shell to render instead of sleeping a fixed amount.
+
+        A fixed sleep is what breaks on a slow machine, or when Zalo has been
+        slowed down by many groups in a row: the code clicks before the
+        sidebar exists.
+        """
+        try:
+            WebDriverWait(self.driver, timeout, poll_frequency=0.4).until(
+                lambda d: d.execute_script(
+                    "return !!document.querySelector('main header, main, div[id*=\"main\"]');"
+                )
+            )
+        except TimeoutException:
+            if progress_callback:
+                progress_callback("⚠ Group page slow to load — continuing anyway")
+        time.sleep(0.8)
+
+    def _is_info_panel_open(self) -> bool:
+        # The group-info sidebar exists and is actually rendered.
+        try:
+            return bool(self.driver.execute_script(
+                "var a = document.querySelector('aside');"
+                "if(!a){ return false; }"
+                "var r = a.getBoundingClientRect();"
+                "return r.width > 60 && r.height > 60;"
+            ))
+        except Exception:
+            return False
 
     def _click_group_info_button(self, progress_callback=None):
+        if self._is_info_panel_open():
+            return
+
         selectors = [
             "main header>div:nth-child(2)>div[icon]",
             "main header div[icon]",
             "header div[class*='info']",
             "button[class*='info']",
         ]
-        if self._try_click_selectors(selectors):
-            if progress_callback:
-                progress_callback("\u2713 Opened group info panel")
-        else:
-            if progress_callback:
-                progress_callback("\u26a0 Could not find group info button \u2014 continuing anyway")
-        time.sleep(2)
-
-    def _click_view_members_button(self, progress_callback=None):
-        selectors = [
-            "aside div[id='sideBodyScrollBox'] >div >div>div>div>div:nth-child(2)>div:last-child",
-            "aside div[id='sideBodyScrollBox'] div:last-child",
-            "aside div[class*='scroll'] div:last-child",
-        ]
-        clicked = self._try_click_selectors(selectors)
-        if not clicked:
-            # JS fallback: find the element containing member-related text,
-            # then click the nearest clickable ancestor.
+        for sel in selectors:
             try:
-                clicked = bool(self.driver.execute_script(
-                    "var texts = ['xem th\u00e0nh vi\u00ean', 'th\u00e0nh vi\u00ean', 'members'];"
-                    "var nodes = Array.from(document.querySelectorAll('aside div, aside button, aside span, aside a'));"
-                    "for (var i = 0; i < nodes.length; i++) {"
-                    "  var n = nodes[i];"
-                    "  var t = (n.innerText || n.textContent || '').trim().toLowerCase();"
-                    "  if (!t) { continue; }"
-                    "  if (!texts.some(function(kw){ return t.indexOf(kw) >= 0; })) { continue; }"
-                    "  var cur = n;"
-                    "  for (var depth = 0; depth < 6 && cur; depth++) {"
-                    "    var role = (cur.getAttribute && cur.getAttribute('role')) || '';"
-                    "    var cls = (cur.className || '').toString();"
-                    "    if (cur.tagName === 'BUTTON' || cur.tagName === 'A' || role === 'button' || cls.indexOf('btn') >= 0 || cur.onclick) {"
-                    "      cur.click();"
-                    "      return true;"
-                    "    }"
-                    "    cur = cur.parentElement;"
-                    "  }"
-                    "  n.click();"
-                    "  return true;"
-                    "}"
-                    "return false;"
-                ))
+                elements = self.driver.find_elements(By.CSS_SELECTOR, sel)
             except Exception:
-                pass
+                continue
+            for el in elements:
+                try:
+                    el.click()
+                except Exception:
+                    continue
+                if self._wait_until(self._is_info_panel_open, timeout=3.0):
+                    if progress_callback:
+                        progress_callback("✓ Opened group info panel")
+                    return
 
-        if clicked and progress_callback:
-            progress_callback("\u2713 Opened members list")
-        elif progress_callback:
-            progress_callback("\u26a0 Could not find view members button \u2014 continuing anyway")
-        time.sleep(2)
+        if progress_callback:
+            progress_callback("⚠ Could not confirm group info panel — continuing anyway")
+
+    # ------------------------------------------------------------------
+    # Member list panel
+    # ------------------------------------------------------------------
+
+    def _open_member_list(self, progress_callback=None) -> bool:
+        """
+        Open the member list, verifying that the panel actually opened.
+
+        The old code located the button by DOM position
+        ("...>div:nth-child(2)>div:last-child"). That position depends on how
+        many blocks the sidebar renders, and a group owner sees an extra
+        management block that pushes everything down one slot — so the
+        selector picked "File" instead of "Xem thành viên", the click
+        succeeded, and the code reported success while nothing had opened.
+
+        Locate the button by its visible text instead: that text is the same
+        for owners and ordinary members.
+        """
+        if self._is_member_list_open():
+            return True
+
+        # Exact structural selector first — cheap, and right for the common
+        # layout. Always verified below, never trusted on its own.
+        try:
+            for el in self.driver.find_elements(By.CSS_SELECTOR, self.MEMBER_BUTTON_SELECTOR):
+                if self._click_element(el) and self._wait_member_list_open():
+                    if progress_callback:
+                        progress_callback("✓ Opened members list")
+                    return True
+        except Exception:
+            pass
+
+        # Text-based lookup, tolerant of any sidebar layout.
+        for el in self._find_member_button_candidates():
+            try:
+                label = (el.text or "").strip().replace("\n", " ")[:40]
+            except Exception:
+                label = ""
+
+            if not self._click_element(el):
+                continue
+            if self._wait_member_list_open():
+                if progress_callback:
+                    progress_callback(f"✓ Opened members list via text match: {label}")
+                return True
+
+            # Wrong candidate: clear whatever it opened before trying the next,
+            # otherwise a modal sits over the sidebar and swallows the clicks.
+            self._dismiss_overlay()
+
+        return self._is_member_list_open()
+
+    def _find_member_button_candidates(self) -> list:
+        """
+        Innermost sidebar elements that look like the members entry, best first.
+
+        Two things this has to get right, both taken from the real sidebar:
+
+        "Innermost" — an XPath such as //*[contains(., 'Thành viên')] also
+        matches <html> and <body>, because contains() tests the whole subtree's
+        text; document order then puts <html> first, so the old fallback
+        clicked the entire page and reported success. Dropping every node that
+        contains another match leaves only the real entries.
+
+        Ranking — the sidebar holds several elements containing "thành viên",
+        and the one nearest the top is "Thêm thành viên", an action button that
+        opens the invite dialog. Clicking it first would pop a modal over
+        everything else. So candidates are scored, not taken in document order,
+        and invite/approve/manage actions are rejected outright.
+        """
+        try:
+            return self.driver.execute_script(
+                "var NEGATIVE = /thêm thành viên|them thanh vien|mời|moi vao|duyệt|duyet"
+                "|chặn|chan |rời nhóm|roi nhom|xóa|xoa |quản lý|quan ly|add member|invite/;"
+                "var RULES = ["
+                # "29 thành viên" — the actual row that opens the list
+                "  {re: /^\\d[\\d.,]*\\s*(thành viên|thanh vien|members?)\\b/, score: 100},"
+                "  {re: /xem thành viên|xem thanh vien|view members?/,        score: 90},"
+                "  {re: /thành viên nhóm|thanh vien nhom|group members?/,     score: 80},"
+                "  {re: /^(thành viên|thanh vien|members?)\\b/,               score: 60},"
+                "  {re: /thành viên|thanh vien|members?/,                     score: 40}"
+                "];"
+                "var scope = document.querySelector('aside') || document.body;"
+                "var hits = Array.from(scope.querySelectorAll('div,span,a,button,li')).filter(function(n){"
+                "  var t = (n.innerText || n.textContent || '').trim().toLowerCase();"
+                "  if(!t || t.length > 60){ return false; }"
+                "  if(NEGATIVE.test(t)){ return false; }"
+                "  return RULES.some(function(r){ return r.re.test(t); });"
+                "});"
+                "var innermost = hits.filter(function(n){"
+                "  return !hits.some(function(m){ return m !== n && n.contains(m); });"
+                "});"
+                "var scored = innermost.map(function(n){"
+                "  var t = (n.innerText || n.textContent || '').trim().toLowerCase();"
+                "  var best = 0;"
+                "  RULES.forEach(function(r){ if(r.score > best && r.re.test(t)){ best = r.score; } });"
+                "  return {el: n, score: best};"
+                "});"
+                "scored.sort(function(a, b){ return b.score - a.score; });"
+                "return scored.slice(0, 12).map(function(s){ return s.el; });"
+            ) or []
+        except Exception:
+            return []
+
+    def _dismiss_overlay(self):
+        """
+        Press Escape to close anything a wrong click may have opened.
+
+        Without this, one bad candidate (the invite dialog, for instance)
+        leaves a modal covering the sidebar and every later candidate click
+        lands on the overlay instead.
+        """
+        try:
+            self.driver.switch_to.active_element.send_keys(Keys.ESCAPE)
+        except Exception:
+            pass
+        time.sleep(0.4)
+
+    def _click_element(self, el) -> bool:
+        # Click the element, or the nearest clickable ancestor of it.
+        try:
+            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+        except Exception:
+            pass
+        try:
+            self.driver.execute_script(
+                "var n = arguments[0];"
+                "for (var i = 0; i < 6 && n; i++) {"
+                "  var role = (n.getAttribute && n.getAttribute('role')) || '';"
+                "  var cls = (n.className || '').toString();"
+                "  if (n.tagName === 'BUTTON' || n.tagName === 'A' || role === 'button'"
+                "      || cls.indexOf('btn') >= 0 || n.onclick) { n.click(); return true; }"
+                "  n = n.parentElement;"
+                "}"
+                "arguments[0].click();"
+                "return true;",
+                el
+            )
+            return True
+        except Exception:
+            return False
+
+    def _wait_until(self, predicate, timeout: float = 5.0) -> bool:
+        try:
+            WebDriverWait(self.driver, timeout, poll_frequency=0.3).until(
+                lambda _d: bool(predicate())
+            )
+            return True
+        except Exception:
+            return False
+
+    def _wait_member_list_open(self, timeout: float = 6.0) -> bool:
+        return self._wait_until(self._is_member_list_open, timeout=timeout)
 
     # ------------------------------------------------------------------
     # Debug
@@ -311,42 +476,6 @@ class ZaloScraper:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    def _try_click_selectors(self, selectors: list) -> bool:
-        # Try each CSS selector; click the first match. Return True if clicked.
-        for sel in selectors:
-            try:
-                el = self.driver.find_element(By.CSS_SELECTOR, sel)
-                el.click()
-                return True
-            except Exception:
-                continue
-        return False
-
-    def _try_click_members_by_xpath(self, progress_callback=None) -> bool:
-        """
-        Fallback click strategy for unstable DOM: click element by visible text.
-        """
-        xpaths = [
-            "//*[contains(normalize-space(.), 'Xem thành viên')]",
-            "//*[contains(normalize-space(.), 'Thành viên')]",
-            "//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'members')]",
-        ]
-        for xp in xpaths:
-            try:
-                candidates = self.driver.find_elements(By.XPATH, xp)
-                for el in candidates:
-                    txt = (el.text or "").strip()
-                    if not txt:
-                        continue
-                    self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
-                    self.driver.execute_script("arguments[0].click();", el)
-                    if progress_callback:
-                        progress_callback(f"✓ Opened members list via text match: {txt[:40]}")
-                    return True
-            except Exception:
-                continue
-        return False
 
     def _is_member_list_open(self) -> bool:
         # Check if member list panel has been opened and populated.

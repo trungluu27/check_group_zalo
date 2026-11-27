@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from test_excel_reader import TestExcelReader
 from test_excel_writer import TestExcelWriter
 from test_comparator import TestComparator, TestVietnameseToneMarks
+from test_member_button import TestMemberButtonAcrossSidebarLayouts
 
 
 def suite():
@@ -22,6 +23,7 @@ def suite():
     test_suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestExcelWriter))
     test_suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestComparator))
     test_suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestVietnameseToneMarks))
+    test_suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMemberButtonAcrossSidebarLayouts))
 
     return test_suite
 

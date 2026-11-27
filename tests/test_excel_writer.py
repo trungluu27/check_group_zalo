@@ -38,11 +38,15 @@ class TestExcelWriter(unittest.TestCase):
         self.assertTrue(result)
         self.assertTrue(self.test_output.exists())
 
-        # Verify missing sheet content
-        missing_df = pd.read_excel(self.test_output, sheet_name='Missing Members')
+        # dtype=str matters: without it pandas decides a column of digits is
+        # numeric and reads '0901' back as 901. The cell on disk is a string
+        # and keeps its leading zero — which is what the customer opens — so
+        # reading it as text is the only way to check what was actually
+        # written. Vietnamese phone numbers all start with 0.
+        missing_df = pd.read_excel(self.test_output, sheet_name='Missing Members', dtype=str)
         self.assertEqual(len(missing_df), 3)
         self.assertIn('User1', missing_df['Tên Zalo'].values)
-        self.assertIn('0901', missing_df['SĐT Zalo'].astype(str).values)
+        self.assertIn('0901', missing_df['SĐT Zalo'].values)
 
         # Verify extra sheet content
         extra_df = pd.read_excel(self.test_output, sheet_name='In Group Not In Excel')
@@ -72,9 +76,10 @@ class TestExcelWriter(unittest.TestCase):
         result = writer.write_results(self.missing_users, metadata)
         self.assertTrue(result)
 
-        # Verify metadata sheet exists
-        excel_file = pd.ExcelFile(self.test_output)
-        self.assertIn('Metadata', excel_file.sheet_names)
+        # Close the handle before tearDown removes the file: on Windows an
+        # open ExcelFile keeps a lock and unlink() fails with WinError 32.
+        with pd.ExcelFile(self.test_output) as excel_file:
+            self.assertIn('Metadata', excel_file.sheet_names)
 
     def test_write_comparison_report(self):
         """Test writing comparison report"""
