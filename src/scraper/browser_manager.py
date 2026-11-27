@@ -6,12 +6,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
 from typing import Optional
+import logging
 import time
 import sys
 import platform
 import shutil
 import subprocess
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def _get_writable_chromedriver_dir() -> Path:
@@ -156,29 +159,72 @@ class BrowserManager:
         Raises:
             RuntimeError: If Chrome is not installed or ChromeDriver cannot start
         """
-        options = self._build_chrome_options()
-        service = self._build_service()
+        last_error: Optional[Exception] = None
 
-        try:
-            self.driver = webdriver.Chrome(service=service, options=options)
-            self.driver.set_page_load_timeout(self.timeout)
-            self.driver.implicitly_wait(0)   # We use explicit waits everywhere
-            return self.driver
-        except WebDriverException as e:
-            msg = str(e)
-            if 'user data directory is already in use' in msg.lower():
-                raise RuntimeError(
-                    "Profile đăng nhập đang được dùng bởi một phiên khác.\n"
-                    "Vui lòng đóng app/browser đang chạy rồi thử lại."
-                ) from e
-            if 'Chrome' in msg or 'chrome' in msg or 'binary' in msg.lower():
-                raise RuntimeError(
-                    "Không tìm thấy trình duyệt Chrome.\n\n"
+        # Try each ChromeDriver source in turn. The bundled driver was built
+        # against the Chrome on the BUILD machine; once the user's Chrome
+        # auto-updates it stops matching, so we must fall back instead of
+        # failing outright.
+        for label, make_service in self._service_candidates():
+            try:
+                service = make_service()
+            except Exception as e:
+                logger.warning(f"ChromeDriver source '{label}' unavailable: {e}")
+                last_error = e
+                continue
+
+            try:
+                logger.info(f"Launching Chrome with ChromeDriver source: {label}")
+                self.driver = webdriver.Chrome(
+                    service=service, options=self._build_chrome_options()
+                )
+                self.driver.set_page_load_timeout(self.timeout)
+                self.driver.implicitly_wait(0)   # We use explicit waits everywhere
+                return self.driver
+            except WebDriverException as e:
+                last_error = e
+                msg = str(e).lower()
+                logger.warning(f"ChromeDriver source '{label}' failed: {e}")
+                # Errors no other driver can fix — stop retrying.
+                if 'user data directory is already in use' in msg:
+                    break
+                if self._is_chrome_missing(msg):
+                    break
+            except Exception as e:
+                last_error = e
+                logger.warning(f"ChromeDriver source '{label}' failed: {e}")
+
+        raise self._friendly_launch_error(last_error)
+
+    @staticmethod
+    def _is_chrome_missing(msg: str) -> bool:
+        msg = msg.lower()
+        return (
+            'cannot find chrome binary' in msg
+            or 'no chrome binary' in msg
+            or 'unable to find chrome' in msg
+            or 'chrome not found' in msg
+        )
+
+    def _friendly_launch_error(self, err: Optional[Exception]) -> RuntimeError:
+        raw = str(err) if err else "unknown error"
+        msg = raw.lower()
+
+        if 'user data directory is already in use' in msg:
+            text = ("Profile đăng nhập đang được dùng bởi một phiên khác.\n"
+                    "Vui lòng đóng app/Chrome đang chạy rồi thử lại.")
+        elif self._is_chrome_missing(msg):
+            text = ("Không tìm thấy trình duyệt Google Chrome.\n\n"
                     "Vui lòng cài đặt Google Chrome tại:\n"
-                    "https://www.google.com/chrome/\n\n"
-                    f"Chi tiết lỗi: {msg}"
-                ) from e
-            raise RuntimeError(f"Không thể khởi động trình duyệt: {msg}") from e
+                    "https://www.google.com/chrome/")
+        elif 'only supports chrome version' in msg or 'session not created' in msg:
+            text = ("ChromeDriver không khớp với phiên bản Chrome đang cài.\n\n"
+                    "Hãy kiểm tra kết nối mạng (app cần tải ChromeDriver mới) "
+                    "rồi thử lại, hoặc cập nhật Google Chrome lên bản mới nhất.")
+        else:
+            text = "Không thể khởi động trình duyệt Chrome."
+
+        return RuntimeError(f"{text}\n\nChi tiết lỗi: {raw}")
 
     def navigate(self, url: str):
         """Navigate to URL."""
@@ -307,29 +353,37 @@ class BrowserManager:
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-gpu')
         options.add_argument('--window-size=1280,800')
-        options.add_argument(
-            '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        )
+        # No hard-coded --user-agent: a fixed "Chrome/120" string no longer
+        # matches the real browser version and makes Zalo flag the session.
         options.add_experimental_option('excludeSwitches', ['enable-automation'])
         options.add_experimental_option('useAutomationExtension', False)
 
         return options
 
-    def _build_service(self) -> Service:
+    def _service_candidates(self):
+        """
+        Ordered ChromeDriver sources to try:
+          1. Driver bundled in the app (fast, offline — works while the
+             user's Chrome version matches the build machine's).
+          2. Selenium Manager (ships inside selenium) — detects the installed
+             Chrome and downloads the matching driver into ~/.cache/selenium.
+          3. webdriver-manager — same idea, independent implementation.
+        """
+        candidates = []
+
         bundled = get_bundled_chromedriver_path()
         if bundled:
-            return Service(executable_path=bundled)
+            candidates.append(("bundled", lambda: Service(executable_path=bundled)))
 
-        # Fallback: try webdriver-manager (available when running from source)
-        try:
+        # Service() with no path lets Selenium Manager resolve the driver.
+        candidates.append(("selenium-manager", lambda: Service()))
+
+        def _wdm():
             from webdriver_manager.chrome import ChromeDriverManager
             return Service(ChromeDriverManager().install())
-        except ImportError:
-            pass
 
-        # Last resort: assume chromedriver is on PATH
-        return Service()
+        candidates.append(("webdriver-manager", _wdm))
+        return candidates
 
     def _assert_driver(self):
         if self.driver is None:

@@ -113,6 +113,84 @@ def setup_directories(data_dir: Path):
     (data_dir / "logs").mkdir(parents=True, exist_ok=True)
 
 
+def run_selftest() -> int:
+    """
+    Import every module the app loads lazily and check bundled drivers,
+    then exit. Used by CI: the launch smoke test only proves the window
+    opens, while pandas/openpyxl/selenium are imported only when the user
+    presses Start — a missing module there would otherwise ship unnoticed.
+    """
+    import importlib
+    import subprocess
+
+    failures = []
+    modules = [
+        "PyQt6.QtWidgets", "pandas", "openpyxl", "xlrd",
+        "fuzzywuzzy.fuzz", "Levenshtein",
+        "selenium.webdriver", "selenium.webdriver.chrome.service",
+        "webdriver_manager.chrome",
+        "ui.main_window", "excel.reader", "excel.writer",
+        "scraper.zalo_scraper", "scraper.browser_manager", "core.comparator",
+    ]
+    for name in modules:
+        try:
+            importlib.import_module(name)
+            print(f"[OK]   import {name}")
+        except Exception as e:
+            failures.append(name)
+            print(f"[FAIL] import {name}: {e!r}")
+
+    # Excel round trip through pandas + openpyxl.
+    try:
+        import tempfile
+        import pandas as pd
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "t.xlsx"
+            pd.DataFrame({"a": [1, 2]}).to_excel(p, index=False)
+            assert len(pd.read_excel(p)) == 2
+        print("[OK]   excel read/write")
+    except Exception as e:
+        failures.append("excel")
+        print(f"[FAIL] excel read/write: {e!r}")
+
+    # Bundled ChromeDriver must actually execute (signature / arch / +x).
+    try:
+        from scraper.browser_manager import get_bundled_chromedriver_path
+        drv = get_bundled_chromedriver_path()
+        if drv:
+            out = subprocess.run([drv, "--version"], capture_output=True,
+                                 text=True, timeout=20)
+            if out.returncode == 0:
+                print(f"[OK]   bundled chromedriver: {out.stdout.strip()}")
+            else:
+                failures.append("chromedriver")
+                print(f"[FAIL] bundled chromedriver rc={out.returncode}: {out.stderr}")
+        else:
+            print("[WARN] no bundled chromedriver (Selenium Manager fallback only)")
+    except Exception as e:
+        failures.append("chromedriver")
+        print(f"[FAIL] bundled chromedriver: {e!r}")
+
+    # Selenium Manager is the fallback when the bundled driver is outdated.
+    try:
+        from selenium.webdriver.common.selenium_manager import SeleniumManager
+        sm = SeleniumManager()
+        path = sm._get_binary() if hasattr(sm, "_get_binary") else sm.get_binary()
+        out = subprocess.run([str(path), "--version"], capture_output=True,
+                             text=True, timeout=20)
+        if out.returncode == 0:
+            print(f"[OK]   selenium-manager: {out.stdout.strip()}")
+        else:
+            failures.append("selenium-manager")
+            print(f"[FAIL] selenium-manager rc={out.returncode}: {out.stderr}")
+    except Exception as e:
+        failures.append("selenium-manager")
+        print(f"[FAIL] selenium-manager: {e!r}")
+
+    print("SELFTEST", "FAILED: " + ", ".join(failures) if failures else "PASSED")
+    return 1 if failures else 0
+
+
 def main():
     """Main application entry point"""
     # ------------------------------------------------------------------
@@ -148,6 +226,9 @@ def main():
     # Setup logging
     setup_logging(data_dir)
 
+    if "--selftest" in sys.argv:
+        sys.exit(run_selftest())
+
     import logging
     logger = logging.getLogger(__name__)
     logger.info("=" * 60)
@@ -176,12 +257,20 @@ def main():
     # Window icon (title bar, Alt-Tab, taskbar). The .exe's own icon is set
     # separately by PyInstaller — this one is what Qt draws at runtime.
     # Setting it on the QApplication means dialogs inherit it too.
-    icon_file = get_resource_dir() / "resources" / "icon.ico"
-    if icon_file.exists():
+    # macOS takes the Dock icon from the bundle's .icns; the PNG is a
+    # fallback for dialogs. Windows prefers the multi-size .ico.
+    icon_names = ["icon.png", "icon.ico"] if sys.platform == "darwin" \
+        else ["icon.ico", "icon.png"]
+    icon_file = next(
+        (get_resource_dir() / "resources" / n for n in icon_names
+         if (get_resource_dir() / "resources" / n).exists()),
+        None,
+    )
+    if icon_file:
         app.setWindowIcon(QIcon(str(icon_file)))
         logger.info(f"Window icon loaded: {icon_file}")
     else:
-        logger.warning(f"Window icon not found: {icon_file}")
+        logger.warning(f"Window icon not found in {get_resource_dir() / 'resources'}")
 
     window = MainWindow()
     window.show()

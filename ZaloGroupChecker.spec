@@ -42,7 +42,9 @@ local_hiddenimports = [
     'ui', 'ui.main_window',
     'excel', 'excel.reader', 'excel.writer',
     'scraper', 'scraper.zalo_scraper',
-    'scraper.browser_manager', 'scraper.browser_manager_bundled',
+    'scraper.browser_manager',
+    # browser_manager_bundled is NOT listed: it imports playwright, which is
+    # excluded below, and the app never uses it.
     'core', 'core.comparator',
 ]
 
@@ -71,6 +73,8 @@ a = Analysis(
     datas=[
         ('config.json', '.'),
         ('src', 'src'),           # keep src/ tree inside bundle so imports resolve
+        # Runtime window icon (main.py looks in <resources>/resources/).
+        ('resources/icon.png', 'resources'),
     ] + pyqt6_datas + sel_datas + wdm_datas,
     hiddenimports=[
         # PyQt6 (collect_all covers these, kept as safety net)
@@ -109,6 +113,23 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+# selenium ships selenium-manager for all three OSes; keep only the macOS one.
+# The macOS copy MUST stay: it is the fallback that downloads a ChromeDriver
+# matching the user's Chrome once the bundled driver goes out of date.
+_PRUNE_PATH_FRAGMENTS = (
+    'webdriver/common/linux/',
+    'webdriver/common/windows/',
+)
+
+
+def _keep(entry) -> bool:
+    dest = str(entry[0]).replace('\\', '/').lower()
+    return not any(frag in dest for frag in _PRUNE_PATH_FRAGMENTS)
+
+
+a.binaries = [e for e in a.binaries if _keep(e)]
+a.datas = [e for e in a.datas if _keep(e)]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
